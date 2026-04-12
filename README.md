@@ -18,7 +18,7 @@ Copy and paste the following commands into your terminal to get started.
 
 ### 1. Clone & Set Permissions
 ```bash
-git clone https://github.com/cybersriram7/IPConv1.git && cd IPConv1
+git clone https://github.com/cybersriram7/ipco-v.1.git && cd ipco-v.1
 chmod +x install.sh
 ```
 
