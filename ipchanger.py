@@ -75,7 +75,7 @@ BANNER = r"""
 def print_banner():
     """Print the application banner."""
     print(colorize(BANNER, C.CYAN, C.BOLD))
-
+    print(colorize("                                          [ DEVELOPED BY SRIRAM ]", C.MAGENTA, C.BOLD))
 
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
