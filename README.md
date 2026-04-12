@@ -1,4 +1,4 @@
-# IPConv v.1 & IP Changer
+# IPCon v.1 & IP Changer
 
 Professional IP Rotation System using the Tor network. This tool provides system-wide transparent proxying, multi-provider support, and a robust kill-switch.
 
