@@ -43,6 +43,7 @@ fi
 echo -e "${CYAN}[*] Installing Python dependencies...${NC}"
 pip3 install --user -q stem PySocks requests pyyaml 2>/dev/null || \
 pip install --user -q stem PySocks requests pyyaml 2>/dev/null || \
+sudo pip3 install stem PySocks requests pyyaml --break-system-packages 2>/dev/null || \
 sudo pip3 install stem PySocks requests pyyaml 2>/dev/null
 
 # Step 3: Configure Tor

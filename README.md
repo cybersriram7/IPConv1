@@ -42,7 +42,7 @@ sudo dnf install -y tor curl python3 python3-pip
 
 ### 3. Install Python Libraries
 ```bash
-pip3 install -r requirements.txt
+pip3 install -r requirements.txt --break-system-packages
 ```
 
 ### 4. Run the Professional Installer
