@@ -79,18 +79,12 @@ Verify your anonymity and connection:
 
 ```bash
 # Check current IP and Latency
-python3 ipcon.py test
-
-# Monitor system-wide rotation in real-time
-watch -n 5 curl https://api.ipify.org
-```
-
+    while true; do curl -s https://api.ipify.org; echo " - Checked at $(date +%H:%M:%S)"; sleep 5; done
 ---
 
 ## 🛑 How to Stop
-To stop the rotation and restore original network settings locally or via CLI:
-```bash
-sudo ipchanger stop
+ CRTL+C TO TERMINATE
+    
 ```
 
 ---
