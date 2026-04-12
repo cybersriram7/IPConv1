@@ -293,12 +293,14 @@ class TorManager:
             "DNSPort 5353",
             "DataDirectory /var/lib/tor",
             # Performance & Speed Optimization
-            "MaxCircuitDirtiness 10",
+            "MaxCircuitDirtiness 5",
             "NewCircuitPeriod 5",
-            "CircuitBuildTimeout 10",
+            "CircuitBuildTimeout 5",
+            "MaxNewNymSpam 1",
             "EnforceDistinctSubnets 1",
             "UseEntryGuards 1",
-            "NumEntryGuards 3"
+            "NumEntryGuards 3",
+            "LearnCircuitBuildTimeout 0"
         ]
         
         if country:
@@ -406,11 +408,13 @@ class TorManager:
         if not HAS_STEM: return False
         try:
             if not self._controller or not self._controller.is_alive():
-                self._controller.signal(Signal.NEWNYM)
-                self._ip_count += 1
-                return True
-            return False
-        except Exception:
+                if not self.connect_controller():
+                    return False
+            
+            self._controller.signal(Signal.NEWNYM)
+            self._ip_count += 1
+            return True
+        except Exception as e:
             return False
     
     def get_current_ip(self):
@@ -419,12 +423,12 @@ class TorManager:
             # Transparent proxy handles this now
             import urllib.request
             req = urllib.request.Request("https://api.ipify.org", headers={'User-Agent': 'curl/7.68.0'})
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=5) as response:
                 return response.read().decode('utf-8').strip()
         except Exception:
             try:
                 # Fallback to curl
-                res = subprocess.run(["curl", "-s", "--max-time", "10", "https://api.ipify.org"], capture_output=True, text=True)
+                res = subprocess.run(["curl", "-s", "--max-time", "5", "https://api.ipify.org"], capture_output=True, text=True)
                 return res.stdout.strip()
             except Exception:
                 return None
@@ -434,7 +438,7 @@ class TorManager:
         try:
             import urllib.request, json
             req = urllib.request.Request(f"http://ip-api.com/json/{ip}?fields=country", headers={'User-Agent': 'curl/7.68.0'})
-            with urllib.request.urlopen(req, timeout=3) as response:
+            with urllib.request.urlopen(req, timeout=2) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 return data.get('country', '')
         except Exception:
@@ -484,20 +488,28 @@ class IPChanger:
         print_status_table(tor_running, self.interval, country=self.country, kill_switch=self.kill_switch)
         print()
         
+        # Initial rotation
+        self.tor.request_new_ip()
+        
         while not self._stop_event.is_set():
+            # Get IP in background or with short timeout
             curr_ip = self.tor.get_current_ip()
+            
             if curr_ip and curr_ip != self._last_ip:
                 self._last_ip = curr_ip
                 country = self.tor.get_ip_country(curr_ip)
                 print_ip_change(curr_ip, country)
                 self._rotation_count += 1
             
+            # Request NEWNYM (with MaxNewNymSpam 1, this works very fast)
+            if not self.tor.request_new_ip():
+                # Fallback only if controller dies
+                self.tor.restart_tor_service()
+                time.sleep(1)
+            
+            # Wait for next interval
             if self._stop_event.wait(timeout=self.interval):
                 break
-                
-            if not self.tor.request_new_ip():
-                self.tor.restart_tor_service()
-                time.sleep(2)
         
         self._shutdown()
         return 0
