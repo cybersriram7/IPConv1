@@ -17,9 +17,7 @@ class IPVerifier:
     """Public IP detection and verification"""
     
     IP_SERVICES = [
-        "https://api.ipify.org?format=json",
-        "https://ipinfo.io/json",
-        "https://api.my-ip.io/v2/ip.json",
+        "https://api.ipify.org",
     ]
     
     def __init__(self):
@@ -32,11 +30,14 @@ class IPVerifier:
         try:
             for url in self.IP_SERVICES:
                 try:
-                    req = urllib.request.Request(url, headers={"User-Agent": "IPCon/1.0"})
+                    req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
                     response = urllib.request.urlopen(req, timeout=5)
-                    data = json.loads(response.read().decode())
-                    
-                    ip = data.get('ip') or data.get('address')
+                    content = response.read().decode().strip()
+                    try:
+                        data = json.loads(content)
+                        ip = data.get('ip') or data.get('address') or str(data)
+                    except json.JSONDecodeError:
+                        ip = content
                     
                     if ip and self._is_valid_ip(ip):
                         if ip != self._current_ip:
