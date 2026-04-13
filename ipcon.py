@@ -44,6 +44,7 @@ from src.network.kill_switch import KillSwitch
 from src.network.dns_protection import DNSProtection
 from src.network.ip_verifier import IPVerifier
 from src.network.leak_prevention import LeakPrevention
+from src.network.system_proxy import SystemProxy
 from src.utils.config_loader import ConfigLoader, AppConfig
 from src.utils.logger import setup_logging
 from src.cli.interface import CLI
@@ -71,6 +72,18 @@ def is_windows():
 
 def clear_screen():
     os.system('cls' if is_windows() else 'clear')
+
+
+def is_admin():
+    """Check if process has administrator privileges."""
+    try:
+        if is_windows():
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        else:
+            return os.getuid() == 0
+    except:
+        return False
 
 
 BANNER = r"""
@@ -112,6 +125,7 @@ class IPConApp:
         self.kill_switch: Optional[KillSwitch] = None
         self.dns_protection: Optional[DNSProtection] = None
         self.leak_prevention: Optional[LeakPrevention] = None
+        self.system_proxy: Optional[SystemProxy] = None
         self.ip_verifier: Optional[IPVerifier] = None
         self.cli: Optional[CLI] = None
         self._running = False
@@ -134,6 +148,7 @@ class IPConApp:
             self.kill_switch = KillSwitch()
             self.dns_protection = DNSProtection()
             self.leak_prevention = LeakPrevention()
+            self.system_proxy = SystemProxy() if is_windows() else None
             
             self.chain_manager = ChainManager(self.config)
             await self.chain_manager.initialize()
@@ -193,7 +208,19 @@ class IPConApp:
                     await self.leak_prevention.enable_ipv6_block()
             else:
                 logger = logging.getLogger(__name__)
-                logger.info("Skipping Linux-only security features (Kill Switch, DNS Protection, IPv6 Block) on Windows.")
+                logger.info("Proccessing Windows advanced security features...")
+                
+                if self.config.security.kill_switch:
+                    logger.info("Enabling Windows Kill Switch...")
+                    await self.kill_switch.enable()
+                
+                if self.config.security.ipv6_leak_protection:
+                    logger.info("Enabling Windows IPv6 blocking...")
+                    await self.leak_prevention.enable()
+                
+                # On Windows, we use System Proxy as a replacement for Transparent Proxy
+                logger.info("Enabling Windows System-wide SOCKS proxy...")
+                self.system_proxy.enable(port=9052)
             
             await self.rotation_engine.start()
             await self.scheduler.start()
@@ -233,7 +260,13 @@ class IPConApp:
                 await self.dns_protection.disable()
             
             if self.leak_prevention:
-                await self.leak_prevention.disable_ipv6_block()
+                if is_windows():
+                    await asyncio.get_event_loop().run_in_executor(None, self.leak_prevention.disable)
+                else:
+                    await self.leak_prevention.disable_ipv6_block()
+            
+            if is_windows() and self.system_proxy:
+                self.system_proxy.disable()
             
             if self.chain_manager:
                 await self.chain_manager.disconnect_all()
@@ -368,6 +401,13 @@ async def async_main(args) -> int:
 
 def main():
     """Main entry point."""
+    if not is_admin():
+        if is_windows():
+            print(c("ERROR: Must be run as Administrator on Windows.", "RED"))
+        else:
+            print(c("ERROR: Must be run as root (sudo) on Linux.", "RED"))
+        return 1
+
     parser = argparse.ArgumentParser(
         description="IPCon v.1 - Professional IP Rotation System",
         formatter_class=argparse.RawDescriptionHelpFormatter

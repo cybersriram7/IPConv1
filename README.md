@@ -81,7 +81,7 @@ sudo ipchanger -s 5
 sudo ipchanger -s 10
 ```
 
-**Windows:**
+**Windows (Admin Required):**
 ```powershell
 python ipchanger.py -s 10
 ```
@@ -89,11 +89,13 @@ python ipchanger.py -s 10
 | Flag | Description | Linux Example | Windows Example |
 |------|-------------|---------------|-----------------|
 | `-c` | Change Country | `sudo ipchanger -s 10 -c us` | `python ipchanger.py -c us` |
-| `-k` | Kill Switch (Linux) | `sudo ipchanger -k` | N/A |
+| `-k` | Kill Switch | `sudo ipchanger -k` | `python ipchanger.py -k` |
 | `stop` | Stop all services | `sudo ipchanger stop` | `python ipchanger.py stop` |
 
-> [!NOTE]
-> **Transparent Proxying** is currently a Linux-only feature. On Windows, the tool will rotate the circuit, but you must configure your application (Browser, Bot, etc.) to use the **SOCKS5 Proxy: 127.0.0.1:9052**.
+> [!IMPORTANT]
+> **Windows Administrator Rights**: On Windows, you MUST run your PowerShell or Command Prompt as **Administrator** to use the Kill Switch and System Proxy features.
+>
+> **Windows System Proxy**: On Windows, the tool automatically configures your **System-wide Proxy Settings**. This routes your browsers (Chrome, Edge) and most apps through Tor without any manual configuration!
 
 ---
 

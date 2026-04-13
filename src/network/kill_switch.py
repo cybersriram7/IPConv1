@@ -30,8 +30,22 @@ class KillSwitch:
             
             try:
                 if platform.system() == "Windows":
-                    logger.warning("Kill switch is not supported on Windows.")
-                    return False
+                    # For Windows, we'll use a different approach:
+                    # 1. Block all outbound traffic
+                    # 2. Allow localhost (for Tor control and SOCKS)
+                    logger.info("Enabling Windows Kill Switch (via netsh)...")
+                    
+                    cmds = [
+                        ["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Block_All", "dir=out", "action=block"],
+                        ["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"]
+                    ]
+                    
+                    for cmd in cmds:
+                        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    self._enabled = True
+                    logger.info("Windows Kill Switch enabled - Non-local traffic blocked")
+                    return True
 
                 logger.info("Enabling kill switch...")
                 
@@ -76,6 +90,13 @@ class KillSwitch:
                 return True
             
             try:
+                if platform.system() == "Windows":
+                    logger.info("Disabling Windows Kill Switch...")
+                    subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Block_All"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._enabled = False
+                    return True
+
                 logger.info("Disabling kill switch...")
                 
                 rules = [
@@ -107,17 +128,20 @@ class KillSwitch:
         try:
             logger.critical("EMERGENCY KILL - Blocking all traffic!")
             
-            rules = [
-                ("iptables", "-F"), ("iptables", "-X"),
-                ("iptables", "-P", "INPUT", "DROP"),
-                ("iptables", "-P", "FORWARD", "DROP"),
-                ("iptables", "-P", "OUTPUT", "DROP"),
-            ]
-            
-            for rule in rules:
-                await asyncio.create_subprocess_exec(
-                    *rule, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
-                )
+            if platform.system() == "Windows":
+                subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Emergency_Block", "dir=out", "action=block"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                rules = [
+                    ("iptables", "-F"), ("iptables", "-X"),
+                    ("iptables", "-P", "INPUT", "DROP"),
+                    ("iptables", "-P", "FORWARD", "DROP"),
+                    ("iptables", "-P", "OUTPUT", "DROP"),
+                ]
+                
+                for rule in rules:
+                    await asyncio.create_subprocess_exec(
+                        *rule, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                    )
             
             self._enabled = True
             logger.critical("All traffic blocked!")

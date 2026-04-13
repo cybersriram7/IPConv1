@@ -60,6 +60,18 @@ def colorize(text, *colors):
     return f"{prefix}{text}{C.RST}"
 
 
+def is_admin():
+    """Check if process has administrator privileges."""
+    try:
+        if platform.system() == "Windows":
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        else:
+            return os.geteuid() == 0
+    except:
+        return False
+
+
 def is_windows():
     return platform.system() == "Windows"
 
@@ -206,9 +218,25 @@ class TransparentProxy:
     @staticmethod
     def enable(kill_switch=False):
         if is_windows():
-            print_warning("Transparent Proxy (Global Routing) is not supported on Windows yet.")
-            print_info("Please configure your browser/app to use SOCKS Proxy: 127.0.0.1:9052")
-            return
+            print_info(f"Enabling Windows System Proxy {'with KILL SWITCH' if kill_switch else ''}...")
+            try:
+                import winreg
+                reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
+                winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
+                winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "socks=127.0.0.1:9052")
+                winreg.CloseKey(key)
+                
+                if kill_switch:
+                    print_info("Enabling Windows Kill Switch (netsh)...")
+                    subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KillSwitch", "dir=out", "action=block"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                print_success(f"Windows System Proxy enabled {'(Kill-Switch ACTIVE)' if kill_switch else ''}.")
+                return
+            except Exception as e:
+                print_error(f"Failed to enable Windows proxy: {e}")
+                return
 
         print_info(f"Enabling transparent proxy (routing ALL traffic via Tor {'with KILL SWITCH' if kill_switch else ''})...")
         cmds = [
@@ -245,6 +273,18 @@ class TransparentProxy:
     @staticmethod
     def disable():
         if is_windows():
+            print_info("Restoring Windows Proxy & Firewall settings...")
+            try:
+                import winreg
+                reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
+                winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
+                winreg.CloseKey(key)
+                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KillSwitch"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print_success("Windows settings restored.")
+            except:
+                pass
             return
             
         print_info("Restoring network (Instant Cleanup)...")
@@ -597,8 +637,11 @@ class IPChanger:
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
-    if not is_windows() and os.geteuid() != 0:
-        print_error("ERROR: Must be run as root (sudo) on Linux.")
+    if not is_admin():
+        if is_windows():
+            print_error("ERROR: Must be run as Administrator on Windows.")
+        else:
+            print_error("ERROR: Must be run as root (sudo) on Linux.")
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="IP Changer - Tor IP Rotation Tool")

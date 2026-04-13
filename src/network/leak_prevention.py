@@ -12,8 +12,12 @@ class LeakPrevention:
     def enable(self):
         try:
             if platform.system() == "Windows":
-                logger.warning("IPv6 leak prevention is not supported on Windows.")
-                return False
+                logger.info("Enabling Windows IPv6 leak prevention (via netsh)...")
+                # Block all IPv6 traffic
+                subprocess.run(['netsh', 'advfirewall', 'firewall', 'add', 'rule', 'name=IPConv_Block_IPv6', 'dir=out', 'action=block', 'protocol=IPv6'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.enabled = True
+                return True
+            
             subprocess.run(['ip6tables', '-F'], check=False)
             subprocess.run(['ip6tables', '-P', 'INPUT', 'DROP'], check=False)
             subprocess.run(['ip6tables', '-P', 'FORWARD', 'DROP'], check=False)
@@ -27,6 +31,12 @@ class LeakPrevention:
 
     def disable(self):
         try:
+            if platform.system() == "Windows":
+                logger.info("Disabling Windows IPv6 leak prevention...")
+                subprocess.run(['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=IPConv_Block_IPv6'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.enabled = False
+                return True
+
             subprocess.run(['ip6tables', '-F'], check=False)
             subprocess.run(['ip6tables', '-P', 'INPUT', 'ACCEPT'], check=False)
             subprocess.run(['ip6tables', '-P', 'FORWARD', 'ACCEPT'], check=False)
