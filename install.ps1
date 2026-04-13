@@ -10,6 +10,16 @@ Write-Host "║      IP Changer - Windows Setup          ║" -ForegroundColor C
 Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
+# Step 0: Check for Administrator Privileges
+Write-Host "[*] Checking for Administrator privileges..." -ForegroundColor Cyan
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "[✗] This installer requires Administrator privileges. Please Relaunch PowerShell as Administrator." -ForegroundColor Red
+    exit 1
+}
+Write-Host "[✓] Running as Administrator" -ForegroundColor Green
+Write-Host ""
+
 # Step 1: Check Python
 Write-Host "[*] Checking Python installation..." -ForegroundColor Cyan
 try {
@@ -52,6 +62,6 @@ Write-Host "Usage:" -ForegroundColor Cyan
 Write-Host "  python ipchanger.py -s 10" -ForegroundColor White
 Write-Host "  python ipcon.py start --interval 30" -ForegroundColor White
 Write-Host ""
-Write-Host "NOTE: Transparent Proxy is NOT available on Windows." -ForegroundColor Yellow
-Write-Host "Configure your app to use SOCKS Proxy: 127.0.0.1:9052" -ForegroundColor Yellow
+Write-Host "NOTE: The Windows version now supports System-wide Proxy and Kill Switch!" -ForegroundColor Green
+Write-Host "Remember to always run your terminal as Administrator." -ForegroundColor Yellow
 Write-Host ""
