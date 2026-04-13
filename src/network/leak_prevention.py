@@ -1,5 +1,6 @@
 import subprocess
 import logging
+import platform
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,9 @@ class LeakPrevention:
 
     def enable(self):
         try:
+            if platform.system() == "Windows":
+                logger.warning("IPv6 leak prevention is not supported on Windows.")
+                return False
             subprocess.run(['ip6tables', '-F'], check=False)
             subprocess.run(['ip6tables', '-P', 'INPUT', 'DROP'], check=False)
             subprocess.run(['ip6tables', '-P', 'FORWARD', 'DROP'], check=False)

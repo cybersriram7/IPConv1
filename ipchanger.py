@@ -17,6 +17,7 @@ import json
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+import platform
 
 try:
     import stem
@@ -57,6 +58,27 @@ def colorize(text, *colors):
     """Apply multiple color codes to text."""
     prefix = ''.join(colors)
     return f"{prefix}{text}{C.RST}"
+
+
+def is_windows():
+    return platform.system() == "Windows"
+
+
+def clear_screen():
+    os.system('cls' if is_windows() else 'clear')
+
+
+def run_cmd(cmd, sudo=True, capture=False, timeout=None):
+    """Run a command with optional sudo on Linux/macOS."""
+    if sudo and not is_windows():
+        full_cmd = ["sudo"] + cmd
+    else:
+        full_cmd = cmd
+    
+    if capture:
+        return subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+    else:
+        return subprocess.run(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -183,6 +205,11 @@ class TransparentProxy:
     
     @staticmethod
     def enable(kill_switch=False):
+        if is_windows():
+            print_warning("Transparent Proxy (Global Routing) is not supported on Windows yet.")
+            print_info("Please configure your browser/app to use SOCKS Proxy: 127.0.0.1:9052")
+            return
+
         print_info(f"Enabling transparent proxy (routing ALL traffic via Tor {'with KILL SWITCH' if kill_switch else ''})...")
         cmds = [
             ["iptables", "-t", "nat", "-F"],
@@ -217,6 +244,9 @@ class TransparentProxy:
 
     @staticmethod
     def disable():
+        if is_windows():
+            return
+            
         print_info("Restoring network (Instant Cleanup)...")
         # Combine all cleanup into one sudo call to be FAST
         cleanup_cmd = "iptables -t nat -F && iptables -F OUTPUT && iptables -P OUTPUT ACCEPT"
@@ -261,7 +291,10 @@ class TorManager:
         elif shutil.which("yum"):
             cmd = ["sudo", "yum", "install", "-y", "tor"]
         else:
-            print_error("Could not detect package manager. Please install Tor manually.")
+            if is_windows():
+                print_error("Tor is not found in PATH. Please install Tor Browser or Tor Expert Bundle.")
+            else:
+                print_error("Could not detect package manager. Please install Tor manually.")
             return False
         
         try:
@@ -278,7 +311,14 @@ class TorManager:
     
     def configure_tor(self, country=None):
         """Configure Tor for IP rotation, HTTP Tunneling, and Region Selection."""
-        torrc_path = Path("/etc/tor/torrc")
+        if is_windows():
+            # Windows: usually we use a local data directory in the current folder or AppData
+            torrc_path = Path("torrc")
+            data_dir = Path("tor_data").absolute()
+            data_dir.mkdir(exist_ok=True)
+        else:
+            torrc_path = Path("/etc/tor/torrc")
+            data_dir = Path("/var/lib/tor")
         
         # Build configuration content
         config_lines = [
@@ -291,7 +331,7 @@ class TorManager:
             "AutomapHostsOnResolve 1",
             "TransPort 9040",
             "DNSPort 5353",
-            "DataDirectory /var/lib/tor",
+            f"DataDirectory {data_dir}",
             # Performance & Speed Optimization
             "MaxCircuitDirtiness 5",
             "NewCircuitPeriod 5",
@@ -316,12 +356,16 @@ class TorManager:
 
             print_info(f"Applying Tor configuration {' (Region: ' + country + ')' if country else ''}...")
             
-            # Write config (needs sudo)
-            proc = subprocess.run(
-                ["sudo", "tee", str(torrc_path)],
-                input=new_content.encode(),
-                capture_output=True, timeout=10
-            )
+            if not is_windows():
+                # Write config (needs sudo)
+                proc = subprocess.run(
+                    ["sudo", "tee", str(torrc_path)],
+                    input=new_content.encode(),
+                    capture_output=True, timeout=10
+                )
+            else:
+                torrc_path.write_text(new_content)
+                return True
             
             if proc.returncode != 0:
                 # Fallback: temp file
@@ -342,6 +386,17 @@ class TorManager:
     
     def start_tor_service(self):
         """Start the Tor system service."""
+        if is_windows():
+            print_info("Launching Tor process...")
+            try:
+                # Try to launch tor.exe (assuming it's in PATH)
+                subprocess.Popen(["tor", "-f", "torrc"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(2)
+                return self._check_tor_running()
+            except Exception as e:
+                print_error(f"Failed to launch Tor: {e}")
+                return False
+
         try:
             # First try pkill to clean any stuck instances
             subprocess.run(["sudo", "pkill", "-f", "tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -362,13 +417,15 @@ class TorManager:
     
     def stop_tor_service(self):
         """Stop the Tor service."""
+        if is_windows():
+            os.system("taskkill /f /im tor.exe >nul 2>&1")
+            return
         subprocess.run(["sudo", "systemctl", "stop", "tor"], capture_output=True, timeout=10)
     
     def restart_tor_service(self):
         """Restart the Tor service."""
-        subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True, timeout=30)
-        time.sleep(3)
-        return self._check_tor_running()
+        self.stop_tor_service()
+        return self.start_tor_service()
     
     def _check_tor_running(self):
         """Check if Tor SOCKS port is responding."""
@@ -468,7 +525,7 @@ class IPChanger:
     def run(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        os.system('clear')
+        clear_screen()
         print_banner()
         print()
         
@@ -540,8 +597,8 @@ class IPChanger:
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
-    if os.geteuid() != 0:
-        print_error("ERROR: Must be run as root (sudo).")
+    if not is_windows() and os.geteuid() != 0:
+        print_error("ERROR: Must be run as root (sudo) on Linux.")
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="IP Changer - Tor IP Rotation Tool")
@@ -576,7 +633,8 @@ def main():
         changer.run()
     elif cmd == "stop":
         print_info("Stopping IP Changer...")
-        subprocess.run(["sudo", "pkill", "-f", "ipchanger.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not is_windows():
+            subprocess.run(["sudo", "pkill", "-f", "ipchanger.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         TransparentProxy.disable()
     elif cmd == "test":
         tor = TorManager()

@@ -12,9 +12,10 @@ Professional IP Rotation System using the Tor network. This tool provides system
 
 ---
 
-## 🛠 Installation & Setup
+Select your operating system below for tailored installation steps.
 
-Copy and paste the following commands into your terminal to get started.
+### 🐧 Linux (Ubuntu, Arch, Fedora, etc.)
+Copy and paste the following commands to get started:
 
 ### 1. Clone & Set Permissions
 ```bash
@@ -51,6 +52,20 @@ This script configures Tor, sets up transparent proxying, and enables the CLI.
 sudo ./install.sh
 ```
 
+### 🪟 Windows (10/11)
+Follow these steps to set up IPConv1 on Windows:
+
+1.  **Open PowerShell** as Administrator.
+2.  **Navigate** to the project directory:
+    ```powershell
+    cd Downloads\IPConv1
+    ```
+3.  **Run the Installer**:
+    ```powershell
+    Set-ExecutionPolicy Bypass -Scope Process -Force; .\install.ps1
+    ```
+4.  **Restart PowerShell** to apply PATH changes if Tor was installed.
+
 ---
 
 ## 📖 Usage
@@ -60,17 +75,25 @@ sudo ./install.sh
 sudo ipchanger -s 5
 ```
 
-### Start IP Rotation (Default Mode - 10s)
+
+**Linux:**
 ```bash
 sudo ipchanger -s 10
 ```
 
-### Advanced Usage Flags
-| Flag | Description | Example |
-|------|-------------|---------|
-| `-c` | Change Country | `sudo ipchanger -s 10 -c us` |
-| `-k` | Enable Kill Switch | `sudo ipchanger -s 10 -k` |
-| `stop` | Stop all services | `sudo ipchanger stop` |
+**Windows:**
+```powershell
+python ipchanger.py -s 10
+```
+
+| Flag | Description | Linux Example | Windows Example |
+|------|-------------|---------------|-----------------|
+| `-c` | Change Country | `sudo ipchanger -s 10 -c us` | `python ipchanger.py -c us` |
+| `-k` | Kill Switch (Linux) | `sudo ipchanger -k` | N/A |
+| `stop` | Stop all services | `sudo ipchanger stop` | `python ipchanger.py stop` |
+
+> [!NOTE]
+> **Transparent Proxying** is currently a Linux-only feature. On Windows, the tool will rotate the circuit, but you must configure your application (Browser, Bot, etc.) to use the **SOCKS5 Proxy: 127.0.0.1:9052**.
 
 ---
 

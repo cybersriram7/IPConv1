@@ -26,6 +26,7 @@ import logging
 import time
 import os
 from pathlib import Path
+import platform
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -62,6 +63,14 @@ class Colors:
 
 def c(text, color):
     return f"{getattr(Colors, color.upper(), '')}{text}{Colors.ENDC}"
+
+
+def is_windows():
+    return platform.system() == "Windows"
+
+
+def clear_screen():
+    os.system('cls' if is_windows() else 'clear')
 
 
 BANNER = r"""
@@ -167,20 +176,24 @@ class IPConApp:
             if provider:
                 await self.chain_manager.set_active_provider(provider)
             
-            if self.config.security.kill_switch:
+            if not is_windows():
+                if self.config.security.kill_switch:
+                    logger = logging.getLogger(__name__)
+                    logger.info("Enabling kill switch...")
+                    await self.kill_switch.enable()
+                
+                if self.config.security.dns_leak_protection:
+                    logger = logging.getLogger(__name__)
+                    logger.info("Enabling DNS leak protection...")
+                    await self.dns_protection.enable()
+                
+                if self.config.security.ipv6_leak_protection:
+                    logger = logging.getLogger(__name__)
+                    logger.info("Enabling IPv6 leak prevention...")
+                    await self.leak_prevention.enable_ipv6_block()
+            else:
                 logger = logging.getLogger(__name__)
-                logger.info("Enabling kill switch...")
-                await self.kill_switch.enable()
-            
-            if self.config.security.dns_leak_protection:
-                logger = logging.getLogger(__name__)
-                logger.info("Enabling DNS leak protection...")
-                await self.dns_protection.enable()
-            
-            if self.config.security.ipv6_leak_protection:
-                logger = logging.getLogger(__name__)
-                logger.info("Enabling IPv6 leak prevention...")
-                await self.leak_prevention.enable_ipv6_block()
+                logger.info("Skipping Linux-only security features (Kill Switch, DNS Protection, IPv6 Block) on Windows.")
             
             await self.rotation_engine.start()
             await self.scheduler.start()
@@ -341,7 +354,7 @@ async def async_main(args) -> int:
         while True:
             try:
                 status = await app.get_status()
-                os.system('clear')
+                clear_screen()
                 print_banner()
                 app.cli.print_status(status, verbose=True)
                 await asyncio.sleep(2)

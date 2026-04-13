@@ -11,6 +11,7 @@ import stem.control
 from typing import Optional
 import os
 import time
+import platform
 
 from src.providers.base_provider import BaseProvider, ProviderConfig, ProviderStatus
 
@@ -30,7 +31,7 @@ class TorProvider(BaseProvider):
         self._socks_port = getattr(config, 'socks_port', self.DEFAULT_SOCKS_PORT)
         self._tor_process = None
         self._controller = None
-        self._tor_path = "/usr/bin/tor"
+        self._tor_path = "tor" if platform.system() == "Windows" else "/usr/bin/tor"
     
     async def connect(self) -> bool:
         """Start Tor and establish connection."""
@@ -70,10 +71,11 @@ class TorProvider(BaseProvider):
                 config={
                     'ControlPort': str(self._control_port),
                     'SocksPort': str(self._socks_port),
-                    'DataDirectory': '/tmp/ipcon_tor',
+                    'DataDirectory': 'tor_data' if platform.system() == "Windows" else '/tmp/ipcon_tor',
                     'CookieAuthentication': '1',
                     'StrictNodes': '1',
                 },
+                tor_cmd=self._tor_path,
                 timeout=30,
                 take_ownership=True
             )

@@ -6,6 +6,7 @@ IPCon v.1 - Kill Switch
 import asyncio
 import logging
 import subprocess
+import platform
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ class KillSwitch:
                 return True
             
             try:
+                if platform.system() == "Windows":
+                    logger.warning("Kill switch is not supported on Windows.")
+                    return False
+
                 logger.info("Enabling kill switch...")
                 
                 rules = [

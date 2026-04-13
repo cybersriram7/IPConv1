@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import List, Optional
 from pathlib import Path
+import platform
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ class DNSProtection:
                 return True
             
             try:
+                if platform.system() == "Windows":
+                    logger.warning("DNS protection is not supported on Windows.")
+                    return False
+
                 logger.info("Enabling DNS leak protection...")
                 
                 resolv_path = Path("/etc/resolv.conf")
