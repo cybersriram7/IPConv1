@@ -267,6 +267,19 @@ class TransparentProxy:
         
         for cmd in cmds:
             subprocess.run(["sudo"] + cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # IPv6 Routing (Block or route if possible)
+        # Note: Tor's TransPort doesn't support IPv6 fully in most versions, 
+        # so we block it to prevent leaks and force fallback to IPv4 via Tor.
+        print_info("Securing IPv6 (Preventing Leaks)...")
+        ipv6_cmds = [
+            ["ip6tables", "-F"],
+            ["ip6tables", "-A", "OUTPUT", "-p", "tcp", "-j", "REJECT"],
+            ["ip6tables", "-A", "OUTPUT", "-p", "udp", "-j", "REJECT"],
+            ["ip6tables", "-P", "OUTPUT", "DROP"]
+        ]
+        for cmd in ipv6_cmds:
+            subprocess.run(["sudo"] + cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
         print_success(f"Global transparent proxy routing enabled {'(Kill-Switch ACTIVE)' if kill_switch else ''}.")
 
@@ -289,7 +302,7 @@ class TransparentProxy:
             
         print_info("Restoring network (Instant Cleanup)...")
         # Combine all cleanup into one sudo call to be FAST
-        cleanup_cmd = "iptables -t nat -F && iptables -F OUTPUT && iptables -P OUTPUT ACCEPT"
+        cleanup_cmd = "iptables -t nat -F && iptables -F OUTPUT && iptables -P OUTPUT ACCEPT && ip6tables -F && ip6tables -P OUTPUT ACCEPT"
         subprocess.run(["sudo", "bash", "-c", cleanup_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print_success("Network restored.")
 
@@ -365,7 +378,7 @@ class TorManager:
             "# Optimized by IPCO V.1",
             f"ControlPort {self.CONTROL_PORT}",
             "CookieAuthentication 1",
-            f"SocksPort 127.0.0.1:{self.SOCKS_PORT}",
+            f"SocksPort 127.0.0.1:{self.SOCKS_PORT} PreferIPv6",
             "HTTPTunnelPort 127.0.0.1:9080",
             "VirtualAddrNetworkIPv4 10.192.0.0/10",
             "AutomapHostsOnResolve 1",
@@ -373,6 +386,8 @@ class TorManager:
             "DNSPort 5353",
             f"DataDirectory {data_dir}",
             # Performance & Speed Optimization
+            "ClientUseIPv6 1",
+            "ClientPreferIPv6ORPort 1",
             "MaxCircuitDirtiness 5",
             "NewCircuitPeriod 5",
             "CircuitBuildTimeout 5",
@@ -390,9 +405,20 @@ class TorManager:
         new_content = "\n".join(config_lines) + "\n"
         try:
             # Check if current config matches to save some time
-            if torrc_path.exists() and "Optimized by IPCO V.1" in torrc_path.read_text():
-                print_success("Tor already optimized, skipping configuration...")
-                return True
+            # We also check if the country matches to ensure it's not stale
+            if torrc_path.exists():
+                current_config = torrc_path.read_text()
+                if "Optimized by IPCO V.1" in current_config:
+                    # If country is specified, check if it's already in the config
+                    if country:
+                        if f"ExitNodes {{{country.lower()}}}" in current_config:
+                            print_success(f"Tor already optimized for {country.upper()}, skipping configuration...")
+                            return True
+                    else:
+                        # If no country specified, make sure ExitNodes is NOT in there (or it's global)
+                        if "ExitNodes" not in current_config:
+                            print_success("Tor already optimized, skipping configuration...")
+                            return True
 
             print_info(f"Applying Tor configuration {' (Region: ' + country + ')' if country else ''}...")
             
@@ -424,36 +450,140 @@ class TorManager:
             print_warning(f"Could not update torrc: {e}")
             return True
     
+    def _check_port_occupied(self, port):
+        """Check if a specific port is already in use."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            return result == 0
+        except:
+            return False
+
+    def _get_tor_logs(self):
+        """Capture last 20 lines of Tor logs from journalctl or system logs."""
+        if is_windows(): return "Logs not available on Windows."
+        try:
+            res = subprocess.run(["sudo", "journalctl", "-u", "tor", "--no-pager", "-n", "20"], 
+                                 capture_output=True, text=True, timeout=5)
+            if res.stdout.strip():
+                return res.stdout.strip()
+            
+            # Fallback to tailing /var/log/tor/log if it exists
+            if os.path.exists("/var/log/tor/log"):
+                res = subprocess.run(["sudo", "tail", "-n", "20", "/var/log/tor/log"], 
+                                     capture_output=True, text=True, timeout=5)
+                return res.stdout.strip()
+            return "No recent Tor logs found in system journal."
+        except:
+            return "Could not retrieve Tor logs."
+
+    def fix_data_dir_permissions(self):
+        """Attempt to fix permissions for Tor data directory."""
+        if is_windows(): return
+        data_dir = "/var/lib/tor"
+        print_info(f"Checking permissions for {data_dir}...")
+        try:
+            # Try to identify tor user
+            for user in ["debian-tor", "tor", "tor-daemon"]:
+                id_res = subprocess.run(["id", user], capture_output=True)
+                if id_res.returncode == 0:
+                    print_info(f"Restoring ownership to user: {user}...")
+                    subprocess.run(["sudo", "chown", "-R", f"{user}:{user}", data_dir], capture_output=True)
+                    subprocess.run(["sudo", "chmod", "700", data_dir], capture_output=True)
+                    return True
+            return False
+        except:
+            return False
+
     def start_tor_service(self):
-        """Start the Tor system service."""
+        """Start the Tor system service with multiple fallbacks and robust checks."""
         if is_windows():
             print_info("Launching Tor process...")
             try:
-                # Try to launch tor.exe (assuming it's in PATH)
+                # Check ports first
+                if self._check_port_occupied(self.SOCKS_PORT):
+                    print_warning(f"Port {self.SOCKS_PORT} is already in use by another process!")
+                
                 subprocess.Popen(["tor", "-f", "torrc"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(2)
-                return self._check_tor_running()
+                for i in range(15):
+                    if self._check_tor_running():
+                        return True
+                    time.sleep(1)
+                return False
             except Exception as e:
                 print_error(f"Failed to launch Tor: {e}")
                 return False
 
         try:
-            # First try pkill to clean any stuck instances
-            subprocess.run(["sudo", "pkill", "-f", "tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)
+            # Check for port conflicts before starting
+            if self._check_port_occupied(self.SOCKS_PORT) or self._check_port_occupied(self.CONTROL_PORT):
+                print_warning(f"Tor ports ({self.SOCKS_PORT}/{self.CONTROL_PORT}) are occupied. Cleaning up...")
+                subprocess.run(["sudo", "pkill", "-9", "-x", "tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1)
+
+            # Ensure systemd is aware of any changes
+            subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
+
+            # Check if service is masked
+            res = subprocess.run(["sudo", "systemctl", "is-enabled", "tor"], capture_output=True, text=True)
+            if "masked" in res.stdout:
+                print_info("Tor service is masked. Unmasking...")
+                subprocess.run(["sudo", "systemctl", "unmask", "tor"], capture_output=True)
             
-            # Start service
-            subprocess.run(["sudo", "systemctl", "start", "tor"], capture_output=True, timeout=30)
-            time.sleep(1)
+            # 1. Try systemctl (Modern Linux)
+            service_names = ["tor", "tor.service", "tor@default"]
+            for svc in service_names:
+                subprocess.run(["sudo", "systemctl", "restart", svc], capture_output=True, text=True, timeout=20)
+                for _ in range(12):
+                    if self._check_tor_running():
+                        return True
+                    time.sleep(1)
+
+            # 2. Try legacy service command
+            subprocess.run(["sudo", "service", "tor", "restart"], capture_output=True, timeout=20)
+            for _ in range(8):
+                if self._check_tor_running():
+                    return True
+                time.sleep(1)
+
+            # Try permission fix before manual launch
+            self.fix_data_dir_permissions()
+
+            # 3. Fallback launch directly
+            print_info("Service start failed. Trying manual launch...")
+            tor_bin = shutil.which("tor") or "/usr/bin/tor"
+            subprocess.Popen(["sudo", tor_bin, "-f", "/etc/tor/torrc", "--RunAsDaemon", "1"], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            return self._check_tor_running()
+            for _ in range(20):
+                if self._check_tor_running():
+                    return True
+                time.sleep(1)
             
-        except Exception:
-            # Fallback launch
-            print_info("Trying fallback launch...")
-            subprocess.Popen(["sudo", "tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(5)
-            return self._check_tor_running()
+            return False
+            
+        except Exception as e:
+            print_warning(f"Error during Tor start: {e}")
+            return False
+
+
+    def check_dependencies(self):
+        """Check for all required system dependencies."""
+        deps = ["tor", "iptables", "curl"]
+        if is_windows():
+            deps = ["tor"]
+        
+        missing = []
+        for dep in deps:
+            if shutil.which(dep) is None:
+                missing.append(dep)
+        
+        if not HAS_STEM:
+            missing.append("python3-stem (pip3 install stem)")
+            
+        return missing
     
     def stop_tor_service(self):
         """Stop the Tor service."""
@@ -516,19 +646,21 @@ class TorManager:
     
     def get_current_ip(self):
         """Fetch current IP through Tor's transparent routing."""
-        try:
-            # Transparent proxy handles this now
-            import urllib.request
-            req = urllib.request.Request("https://api.ipify.org", headers={'User-Agent': 'curl/7.68.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                return response.read().decode('utf-8').strip()
-        except Exception:
+        # Try both IPv6 and IPv4 detection
+        for service in ["https://api64.ipify.org", "https://api.ipify.org"]:
             try:
-                # Fallback to curl
-                res = subprocess.run(["curl", "-s", "--max-time", "5", "https://api.ipify.org"], capture_output=True, text=True)
-                return res.stdout.strip()
+                import urllib.request
+                req = urllib.request.Request(service, headers={'User-Agent': 'curl/7.68.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    return response.read().decode('utf-8').strip()
             except Exception:
-                return None
+                try:
+                    res = subprocess.run(["curl", "-s", "--max-time", "5", service], capture_output=True, text=True)
+                    if res.stdout.strip():
+                        return res.stdout.strip()
+                except Exception:
+                    continue
+        return None
 
     def get_ip_country(self, ip):
         """Fetch country info."""
@@ -569,16 +701,41 @@ class IPChanger:
         print_banner()
         print()
         
+        # Check system dependencies
+        print_info("Checking dependencies...")
+        missing = self.tor.check_dependencies()
+        if missing:
+            print_warning(f"Missing dependencies: {', '.join(missing)}")
+            if "tor" in missing:
+                if not self.tor.install_tor():
+                    print_error("Failed to install Tor automatically.")
+                    return 1
+            else:
+                print_error("Please install missing dependencies and try again.")
+                return 1
+        else:
+            print_success("All dependencies satisfied.")
+        
         self.tor.configure_tor(country=self.country)
         print_info("Starting Tor service...")
         
         if not self.tor.start_tor_service():
             print_error("Failed to start Tor service automatically.")
-            print_info("Try: sudo systemctl restart tor")
+            print_info("Starting Diagnostics...")
+            logs = self.tor._get_tor_logs()
+            print(colorize("\n--- Last 10 lines of Tor Logs ---", C.YELLOW))
+            print(logs)
+            print(colorize("--------------------------------\n", C.YELLOW))
+            
+            print_info("Troubleshooting tips:")
+            print_info("1. Run 'sudo systemctl unmask tor'")
+            print_info("2. Check if another VPN/Tor tool (like anonsurf) is active")
+            print_info("3. Try manual start: 'sudo tor -f /etc/tor/torrc'")
             return 1
             
         tor_running = self.tor._check_tor_running()
-        self.tor.connect_controller()
+        if HAS_STEM:
+            self.tor.connect_controller()
         TransparentProxy.enable(kill_switch=self.kill_switch)
         
         print()
@@ -691,4 +848,4 @@ def main():
             print_error("Connection Failed or Not Routed through Tor.")
 
 if __name__ == "__main__":
-    main()
+       main()

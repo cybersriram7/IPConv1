@@ -30,7 +30,8 @@ echo -e "${CYAN}[*] Installing system dependencies...${NC}"
 
 if command -v apt-get &> /dev/null; then
     sudo apt-get update -qq
-    sudo apt-get install -y tor curl python3 python3-pip
+    sudo apt-get install -y tor curl python3 python3-pip iptables iproute2
+    sudo apt-get install -y iputils-ping dnsutils net-tools
 elif command -v pacman &> /dev/null; then
     sudo pacman -S --noconfirm tor curl python python-pip
 elif command -v dnf &> /dev/null; then
@@ -84,24 +85,40 @@ sudo ln -sf "$SCRIPT_DIR/ipchanger.py" /usr/local/bin/ipchanger 2>/dev/null || t
 
 # Step 6: Enable and start Tor
 echo -e "${CYAN}[*] Starting Tor service...${NC}"
+sudo systemctl daemon-reload 2>/dev/null || true
+sudo systemctl unmask tor 2>/dev/null || true
 sudo systemctl enable tor 2>/dev/null || true
 sudo systemctl restart tor 2>/dev/null || sudo service tor restart 2>/dev/null || true
 
-# Wait for Tor to start
-sleep 3
+# Wait for Tor to bootstrap
+echo -e "${CYAN}[*] Waiting for Tor to bootstrap...${NC}"
+MAX_RETRIES=30
+COUNT=0
+BOOTSTRAPPED=false
+
+while [ $COUNT -lt $MAX_RETRIES ]; do
+    if ss -tlnp 2>/dev/null | grep -q ":9052" || ss -tln 2>/dev/null | grep -q ":9052"; then
+        BOOTSTRAPPED=true
+        break
+    fi
+    sleep 1
+    COUNT=$((COUNT + 1))
+    echo -ne "\r[*] Progress: $((COUNT * 100 / MAX_RETRIES))%"
+done
+echo -e "\r[*] Ready!                        "
 
 # Verify
-if ss -tlnp | grep -q ":9050"; then
-    echo -e "${GREEN}[✓] Tor SOCKS port (9050) is active${NC}"
+if [ "$BOOTSTRAPPED" = true ]; then
+    echo -e "${GREEN}[✓] Tor SOCKS port (9052) is active${NC}"
+    if ss -tlnp 2>/dev/null | grep -q ":9051" || ss -tln 2>/dev/null | grep -q ":9051"; then
+        echo -e "${GREEN}[✓] Tor Control port (9051) is active${NC}"
+    else
+        echo -e "${YELLOW}[!] Tor Control port (9051) not detected, but SOCKS is ready.${NC}"
+    fi
 else
-    echo -e "${YELLOW}[!] Tor SOCKS port may not be ready yet. It may take a moment.${NC}"
+    echo -e "${RED}[✗] Tor bootstrap timed out. Please check 'sudo journalctl -u tor'${NC}"
 fi
 
-if ss -tlnp | grep -q ":9051"; then
-    echo -e "${GREEN}[✓] Tor Control port (9051) is active${NC}"
-else
-    echo -e "${YELLOW}[!] Tor Control port (9051) may not be ready yet.${NC}"
-fi
 
 echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${NC}"
