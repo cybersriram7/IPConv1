@@ -83,7 +83,7 @@ def print_status_table(tor_status, interval, country=None, kill_switch=False):
     print(border)
     
     status_text = colorize("Tor service started", C.GREEN) if tor_status else colorize("Tor service failed", C.RED)
-    print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(39+9)} {colorize('|', C.CYAN)}") # +9 for ANSI escape codes
+    print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(39+9)} {colorize('|', C.CYAN)}")
     
     rot_text = colorize(f"IP change every {interval} sec", C.YELLOW)
     print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(39+9)} {colorize('|', C.CYAN)}")
@@ -135,9 +135,7 @@ class TransparentProxy:
             except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
             return
 
-        # Linux iptables logic
-        tools = ["iptables", "ip6tables"]
-        for t in tools:
+        for t in ["iptables", "ip6tables"]:
             if shutil.which(t):
                 TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
                 TransparentProxy.run_cmd(["sudo", t, "-F", "OUTPUT"])
@@ -145,7 +143,6 @@ class TransparentProxy:
 
         if not shutil.which("iptables"): return
 
-        # Route DNS and TCP to Tor
         cmds = [
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
@@ -204,7 +201,6 @@ class TorManager:
             subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            # Linux service management
             if shutil.which("systemctl"):
                 subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
             elif shutil.which("service"):
@@ -214,7 +210,6 @@ class TorManager:
                 subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Wait for bootstrap
         for _ in range(20):
             if self.is_running(): return True
             time.sleep(1)
@@ -301,15 +296,16 @@ class IPChanger:
         os._exit(0)
 
 def main():
-    if not is_admin():
-        print(colorize("[X] ERROR: Must run as root/administrator.", C.RED, C.BOLD))
-        sys.exit(1)
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seconds", type=int, default=10)
     parser.add_argument("-c", "--country", type=str)
     parser.add_argument("-k", "--kill-switch", action="store_true")
     args = parser.parse_args()
+
+    if not is_admin():
+        msg = "Administrator on Windows" if is_windows() else "root/administrator on Linux"
+        print(colorize(f"[X] ERROR: Must run as {msg}.", C.RED, C.BOLD))
+        sys.exit(1)
 
     changer = IPChanger(args.seconds, args.country, args.kill_switch)
     signal.signal(signal.SIGINT, lambda s, f: changer.stop_event.set())
