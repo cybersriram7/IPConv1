@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-Optimized for stability and cross-platform compatibility.
+SUPER ROBUST EDITION - Enhanced Error Handling & Diagnostics
 """
 
 import sys
@@ -59,7 +59,10 @@ def is_windows():
     return platform.system() == "Windows"
 
 def clear_screen():
-    os.system('cls' if is_windows() else 'clear')
+    if is_windows():
+        os.system('cls')
+    else:
+        os.system('clear')
 
 # -----------------------------------------------------------------------
 # Banner & UI
@@ -123,50 +126,71 @@ class TransparentProxy:
         if is_windows():
             try:
                 import winreg, ctypes
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Internet Settings", 0, winreg.KEY_WRITE)
+                # 1. Update Proxy Settings
+                reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
                 winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
                 winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "socks=127.0.0.1:9052")
                 winreg.CloseKey(key)
-                # Refresh system proxy
-                ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
-                ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
+                
+                # 2. Refresh Windows settings
+                ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0) # SETTINGS_CHANGED
+                ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0) # REFRESH
+                
+                # 3. Handle Kill Switch
                 if kill_switch:
                     tor_path = TorManager._get_tor_path()
+                    # Clean up old rules first to prevent errors
+                    for rule in ["IPConv_KS", "IPConv_Local", "IPConv_Tor"]:
+                        TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule}"])
+                    
+                    # Add new rules
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block"])
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"])
                     if tor_path:
                         TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Tor", "dir=out", "action=allow", f"program={tor_path}"])
+                
                 print_msg("V", "Windows Proxy enabled.", C.GREEN)
-            except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
-            return
+                return True
+            except Exception as e:
+                print_msg("X", f"Failed to enable Windows proxy: {e}", C.RED)
+                return False
 
-        for t in ["iptables", "ip6tables"]:
-            if shutil.which(t):
-                TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
-                TransparentProxy.run_cmd(["sudo", t, "-F", "OUTPUT"])
-                TransparentProxy.run_cmd(["sudo", t, "-P", "OUTPUT", "ACCEPT"])
+        # Linux iptables logic
+        try:
+            for t in ["iptables", "ip6tables"]:
+                if shutil.which(t):
+                    TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
+                    TransparentProxy.run_cmd(["sudo", t, "-F", "OUTPUT"])
+                    TransparentProxy.run_cmd(["sudo", t, "-P", "OUTPUT", "ACCEPT"])
 
-        if not shutil.which("iptables"): return
+            if not shutil.which("iptables"):
+                print_msg("X", "iptables not found!", C.RED)
+                return False
 
-        cmds = [
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"],
-        ]
-        if kill_switch:
-            cmds += [
-                ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
+            cmds = [
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"],
             ]
-        for cmd in cmds: TransparentProxy.run_cmd(cmd)
-        if shutil.which("ip6tables"):
-            TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
-        print_msg("V", "Transparent proxy active.", C.GREEN)
+            if kill_switch:
+                cmds += [
+                    ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"],
+                    ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+                    ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
+                    ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
+                ]
+            for cmd in cmds: TransparentProxy.run_cmd(cmd)
+            if shutil.which("ip6tables"):
+                TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
+            print_msg("V", "Transparent proxy enabled.", C.GREEN)
+            return True
+        except Exception as e:
+            print_msg("X", f"Failed to enable Linux proxy: {e}", C.RED)
+            return False
 
     @staticmethod
     def disable():
@@ -180,6 +204,7 @@ class TransparentProxy:
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Local"])
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Tor"])
+                print_msg("V", "Windows Proxy disabled.", C.GREEN)
             except: pass
             return
 
@@ -220,12 +245,22 @@ class TorManager:
     def start(self, country=None):
         path = self._get_tor_path()
         if not path:
-            print_msg("X", "Tor executable not found! Please install Tor.", C.RED)
+            print_msg("X", "Tor executable not found! Please install Tor Expert Bundle.", C.RED)
             return False
+
+        # Cleanup existing ports
+        try:
+            with socket.create_connection(("127.0.0.1", self.socks_port), timeout=1):
+                print_msg("!", f"Port {self.socks_port} is busy. Clearing up...", C.YELLOW)
+                if is_windows():
+                    subprocess.run(["taskkill", "/f", "/im", "tor.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.run(["sudo", "pkill", "-9", "-x", "tor"], capture_output=True)
+                time.sleep(1)
+        except: pass
 
         if is_windows():
             try:
-                # Use creationflags to prevent popup console if running as background process
                 flags = 0
                 if hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     flags = subprocess.CREATE_NO_WINDOW
@@ -237,13 +272,12 @@ class TorManager:
         else:
             if shutil.which("systemctl"):
                 subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
-            elif shutil.which("service"):
-                subprocess.run(["sudo", "service", "tor", "restart"], capture_output=True)
             else:
                 subprocess.Popen(["sudo", path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        for _ in range(20):
+        # Wait for bootstrap
+        for i in range(25):
             if self.is_running(): return True
             time.sleep(1)
         return False
@@ -254,7 +288,9 @@ class TorManager:
         except: return False
 
     def connect(self):
-        if not HAS_STEM: return False
+        if not HAS_STEM:
+            print_msg("X", "Library 'stem' is missing. Rotation will not work.", C.RED)
+            return False
         try:
             self.controller = Controller.from_port(port=self.ctrl_port)
             self.controller.authenticate()
@@ -262,25 +298,28 @@ class TorManager:
         except: return False
 
     def rotate(self):
-        if not self.controller or not self.controller.is_alive():
-            if not self.connect(): return False
+        if not HAS_STEM: return False
         try:
+            if not self.controller or not self.controller.is_alive():
+                if not self.connect(): return False
             self.controller.signal(Signal.NEWNYM)
             return True
         except: return False
 
     def get_ip(self):
-        for url in ["https://api.ipify.org", "https://icanhazip.com"]:
+        # Use multiple services for high reliability
+        services = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]
+        for url in services:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as res:
+                with urllib.request.urlopen(req, timeout=8) as res:
                     return res.read().decode().strip()
             except: continue
         return None
 
     def get_country(self, ip):
         try:
-            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=3) as res:
+            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=5) as res:
                 return json.loads(res.read().decode()).get('country')
         except: return None
 
@@ -295,46 +334,75 @@ class IPChanger:
         self.kill_switch = kill_switch
         self.tor = TorManager()
         self.stop_event = threading.Event()
+        self.rotation_count = 0
 
     def run(self):
-        clear_screen()
-        print_banner()
-        print_msg("*", "Initializing system...", C.CYAN)
-        if not self.tor.start(self.country):
-            print_msg("X", "Could not start Tor service.", C.RED)
-            return
-        TransparentProxy.enable(self.kill_switch)
-        print_status_table(True, self.interval, self.country, self.kill_switch)
-        while not self.stop_event.is_set():
-            ip = self.tor.get_ip()
-            if ip:
-                country = self.tor.get_country(ip)
-                print_ip_change(ip, country)
-            if not self.tor.rotate():
-                print_msg("!", "Rotation signal failed, reconnecting...", C.YELLOW)
-                self.tor.connect()
-            if self.stop_event.wait(self.interval): break
-        self.shutdown()
+        try:
+            clear_screen()
+            print_banner()
+            print_msg("*", "Checking dependencies...", C.CYAN)
+            
+            if not HAS_STEM:
+                print_msg("!", "Python library 'stem' is missing. IP rotation will be disabled.", C.YELLOW)
+                print_msg("*", "To fix, run: pip install stem", C.GRAY)
+
+            if not self.tor.start(self.country):
+                print_msg("X", "FATAL: Tor service could not be initialized.", C.RED)
+                return
+
+            if not TransparentProxy.enable(self.kill_switch):
+                print_msg("!", "Warning: Proxy could not be enabled. Manual configuration may be needed.", C.YELLOW)
+
+            print_status_table(True, self.interval, self.country, self.kill_switch)
+            
+            last_ip = None
+            while not self.stop_event.is_set():
+                curr_ip = self.tor.get_ip()
+                if curr_ip and curr_ip != last_ip:
+                    last_ip = curr_ip
+                    country = self.tor.get_country(curr_ip)
+                    print_ip_change(curr_ip, country)
+                    self.rotation_count += 1
+                
+                if not self.tor.rotate():
+                    if HAS_STEM:
+                        print_msg("!", "IP rotation signal failed. Re-attempting...", C.YELLOW)
+                
+                if self.stop_event.wait(self.interval): break
+        except Exception as e:
+            print_msg("X", f"CRITICAL ERROR in main loop: {e}", C.RED)
+        finally:
+            self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Cleaning up...", C.MAGENTA)
+        print_msg("*", "Performing clean shutdown...", C.MAGENTA)
         TransparentProxy.disable()
-        if self.tor.controller: self.tor.controller.close()
+        if self.tor.controller:
+            try: self.tor.controller.close()
+            except: pass
+        print_msg("V", f"Shutdown complete. Total rotations: {self.rotation_count}", C.GREEN)
         os._exit(0)
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--seconds", type=int, default=10)
-    parser.add_argument("-c", "--country", type=str)
-    parser.add_argument("-k", "--kill-switch", action="store_true")
-    args = parser.parse_args()
-    if not is_admin():
-        msg = "Administrator on Windows" if is_windows() else "root/administrator on Linux"
-        print(colorize(f"[X] ERROR: Must run as {msg}.", C.RED, C.BOLD))
+    try:
+        parser = argparse.ArgumentParser(description="IP Changer - Professional IP Rotation Tool")
+        parser.add_argument("-s", "--seconds", type=int, default=10, help="Interval in seconds")
+        parser.add_argument("-c", "--country", type=str, help="Specific country code (e.g. us, de)")
+        parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable network kill switch")
+        args = parser.parse_args()
+
+        if not is_admin():
+            msg = "Administrator on Windows" if is_windows() else "root (sudo) on Linux"
+            print(colorize(f"[X] ERROR: This tool requires elevated privileges. Please run as {msg}.", C.RED, C.BOLD))
+            sys.exit(1)
+
+        changer = IPChanger(args.seconds, args.country, args.kill_switch)
+        signal.signal(signal.SIGINT, lambda s, f: changer.stop_event.set())
+        signal.signal(signal.SIGTERM, lambda s, f: changer.stop_event.set())
+        changer.run()
+    except Exception as e:
+        print(colorize(f"[X] FATAL ERROR: {e}", C.RED, C.BOLD))
         sys.exit(1)
-    changer = IPChanger(args.seconds, args.country, args.kill_switch)
-    signal.signal(signal.SIGINT, lambda s, f: changer.stop_event.set())
-    changer.run()
 
 if __name__ == "__main__":
     main()
