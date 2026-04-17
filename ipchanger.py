@@ -305,45 +305,53 @@ class TorManager:
             if os.path.exists(tar_path):
                 os.remove(tar_path)
             
-            print_msg("V", "Automatic installation complete!", C.GREEN)
-            return True
+            # Verify extraction
+            new_path = self._get_tor_path()
+            if new_path:
+                print_msg("V", f"Tor installed and verified at: {new_path}", C.GREEN)
+                return True
+            else:
+                print_msg("X", "Extraction succeeded but tor.exe was not found in the expected location.", C.RED)
+                return False
         except Exception as e:
             print_msg("X", f"Auto-installation failed: {e}", C.RED)
-            print_msg("!", "Please install it manually from https://www.torproject.org/download/tor/", C.YELLOW)
             return False
 
     def start(self, country=None):
         path = self._get_tor_path()
         if not path:
             if is_windows():
+                print_msg("!", "Tor is missing. Forcing automatic installation...", C.YELLOW)
                 if self.auto_install_tor():
                     path = self._get_tor_path()
             
             if not path:
-                print_msg("X", "Tor executable not found!", C.RED)
-                print_msg("!", "Searched: PATH, Desktop, Downloads, Program Files, and Project folder.", C.YELLOW)
-                print_msg("!", "Download Tor Expert Bundle: https://www.torproject.org/download/tor/", C.YELLOW)
-                print_msg("*", "Quick Fix: Extract 'tor.exe' into a 'Tor' folder inside this directory.", C.CYAN)
+                print_msg("X", "FATAL: Could not locate or install Tor.", C.RED)
                 return False
 
-        # Cleanup existing ports
+        # Cleanup existing processes to avoid port conflicts
+        print_msg("*", "Preparing Tor environment...", C.CYAN)
         try:
-            with socket.create_connection(("127.0.0.1", self.socks_port), timeout=1):
-                print_msg("!", f"Port {self.socks_port} is busy. Clearing up...", C.YELLOW)
-                if is_windows():
-                    subprocess.run(["taskkill", "/f", "/im", "tor.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                else:
-                    subprocess.run(["sudo", "pkill", "-9", "-x", "tor"], capture_output=True)
-                time.sleep(1)
+            if is_windows():
+                subprocess.run(["taskkill", "/f", "/im", "tor.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(["sudo", "pkill", "-9", "-x", "tor"], capture_output=True)
+            time.sleep(1)
         except: pass
 
         if is_windows():
             try:
+                # Ensure path is quoted for Windows shell
+                cmd = [path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port), "--DataDirectory", "TorData"]
                 flags = 0
                 if hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     flags = subprocess.CREATE_NO_WINDOW
-                subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+                
+                # Create data directory if it doesn't exist
+                if not os.path.exists("TorData"): os.makedirs("TorData")
+                
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+                print_msg("*", "Tor process launched.", C.GRAY)
             except Exception as e:
                 print_msg("X", f"Failed to launch Tor: {e}", C.RED)
                 return False
