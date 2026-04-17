@@ -73,7 +73,8 @@ BANNER = r"""
  |_ _|  _ \ / ___/ _ \| \ | |\ \   / / / |
   | || |_) | |  | | | |  \| | \ \ / /  | |
   | ||  __/| |__| |_| | |\  |  \ V /   | |
- |___|_|    \____\___/|_| \_|   \_/    |_|"""
+ |___|_|    \____\___/|_| \_|   \_/    |_|
+                                VERSION: 2.5.0-ULTIMATE"""
 
 def print_banner():
     print(colorize(BANNER, C.CYAN, C.BOLD))
@@ -283,7 +284,12 @@ class TorManager:
         print_msg("*", "Tor not found. Attempting automatic installation...", C.CYAN)
         # Using a stable version of Tor Expert Bundle
         url = "https://dist.torproject.org/torbrowser/14.0.1/tor-expert-bundle-windows-x86_64-14.0.1.tar.gz"
+        
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Safety check: Avoid installing inside system32
+        if "system32" in script_dir.lower():
+            script_dir = os.path.join(os.environ.get("LocalAppData", os.getcwd()), "IPConv1")
+            
         target_dir = os.path.join(script_dir, "Tor")
         tar_path = os.path.join(script_dir, "tor_expert.tar.gz")
         
