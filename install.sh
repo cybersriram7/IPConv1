@@ -1,10 +1,11 @@
 #!/bin/bash
-# =======================================================
+# ═══════════════════════════════════════════════════════════════════════
 # IP Changer - Installation Script
-# =======================================================
+# ═══════════════════════════════════════════════════════════════════════
 
 set -e
 
+# ANSI Color Constants
 RED='\033[0;91m'
 GREEN='\033[0;92m'
 CYAN='\033[0;96m'
@@ -13,121 +14,114 @@ NC='\033[0m'
 BOLD='\033[1m'
 
 echo -e "${CYAN}${BOLD}"
-echo "============================================"
-echo "      IP Changer - Installation           "
-echo "============================================"
+echo "┌──────────────────────────────────────────┐"
+echo "│      IP Changer - Installation           │"
+echo "└──────────────────────────────────────────┘"
 echo -e "${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${YELLOW}[!] Some features require root. Re-running with sudo...${NC}"
+    echo -e "${YELLOW}[!] This script needs root privileges to install system packages.${NC}"
+    echo -e "${YELLOW}[*] Re-running with sudo...${NC}"
+    exec sudo bash "$0" "$@"
+fi
+
+# Step 1: Install system dependencies
+echo -e "${CYAN}[*] Installing system dependencies...${NC}"
+
+if command -v apt-get &> /dev/null; then
+    apt-get update -qq
+    apt-get install -y tor curl python3 python3-pip iptables iproute2 iputils-ping dnsutils net-tools
+elif command -v pacman &> /dev/null; then
+    pacman -S --noconfirm tor curl python python-pip iptables iproute2
+elif command -v dnf &> /dev/null; then
+    dnf install -y tor curl python3 python3-pip iptables iproute2
+else
+    echo -e "${RED}[✗] Unsupported package manager. Please install tor, curl, python3, and iptables manually.${NC}"
+fi
+
+# Step 2: Install Python dependencies
+echo -e "${CYAN}[*] Installing Python dependencies...${NC}"
+pip3 install -q stem PySocks requests 2>/dev/null || \
+pip install -q stem PySocks requests 2>/dev/null || \
+sudo pip3 install stem PySocks requests --break-system-packages 2>/dev/null
+
+# Step 3: Configure Tor
+echo -e "${CYAN}[*] Configuring Tor...${NC}"
+
+TORRC="/etc/tor/torrc"
+if [ -f "$TORRC" ]; then
+    if ! grep -q "ControlPort 9051" "$TORRC"; then
+        echo "" | tee -a "$TORRC" > /dev/null
+        echo "# Added by IPCO V.1" | tee -a "$TORRC" > /dev/null
+        echo "ControlPort 9051" | tee -a "$TORRC" > /dev/null
+        echo "CookieAuthentication 1" | tee -a "$TORRC" > /dev/null
+        echo -e "${GREEN}[✓] Tor control port configured${NC}"
+    else
+        echo -e "${GREEN}[✓] Tor already configured${NC}"
     fi
+else
+    echo -e "${YELLOW}[!] torrc not found. Creating default config...${NC}"
+    mkdir -p /etc/tor
+    echo "SocksPort 9050" | tee "$TORRC" > /dev/null
+    echo "ControlPort 9051" | tee -a "$TORRC" > /dev/null
+    echo "CookieAuthentication 1" | tee -a "$TORRC" > /dev/null
+fi
 
-    # Step 1: Install system dependencies
-    echo -e "${CYAN}[*] Installing system dependencies...${NC}"
+# Step 4: Fix permissions for Tor
+echo -e "${CYAN}[*] Fixing Tor permissions...${NC}"
+# Use the actual user who ran sudo
+ACTUAL_USER=${SUDO_USER:-$USER}
+if [ "$ACTUAL_USER" != "root" ]; then
+    usermod -aG debian-tor "$ACTUAL_USER" 2>/dev/null || true
+    usermod -aG tor "$ACTUAL_USER" 2>/dev/null || true
+    echo -e "${GREEN}[✓] Added user $ACTUAL_USER to Tor groups${NC}"
+fi
 
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq
-            sudo apt-get install -y tor curl python3 python3-pip iptables iproute2
-                sudo apt-get install -y iputils-ping dnsutils net-tools
-                elif command -v pacman &> /dev/null; then
-                    sudo pacman -S --noconfirm tor curl python python-pip
-                    elif command -v dnf &> /dev/null; then
-                        sudo dnf install -y tor curl python3 python3-pip
-                        else
-                            echo -e "${RED}[!] Unsupported package manager. Install tor, curl, python3, pip manually.${NC}"
-                            fi
+# Step 5: Create symlink for easy access
+echo -e "${CYAN}[*] Creating command symlink...${NC}"
+chmod +x "$SCRIPT_DIR/ipchanger.py"
+ln -sf "$SCRIPT_DIR/ipchanger.py" /usr/local/bin/ipchanger 2>/dev/null || true
 
-                            # Step 2: Install Python dependencies
-                            echo -e "${CYAN}[*] Installing Python dependencies...${NC}"
-                            pip3 install --user -q stem PySocks requests pyyaml 2>/dev/null || \
-                            pip install --user -q stem PySocks requests pyyaml 2>/dev/null || \
-                            sudo pip3 install stem PySocks requests pyyaml --break-system-packages 2>/dev/null || \
-                            sudo pip3 install stem PySocks requests pyyaml 2>/dev/null
+# Step 6: Enable and start Tor
+echo -e "${CYAN}[*] Starting Tor service...${NC}"
+systemctl daemon-reload 2>/dev/null || true
+systemctl unmask tor 2>/dev/null || true
+systemctl enable tor 2>/dev/null || true
+systemctl restart tor 2>/dev/null || service tor restart 2>/dev/null || true
 
-                            # Step 3: Configure Tor
-                            echo -e "${CYAN}[*] Configuring Tor...${NC}"
+# Wait for Tor to bootstrap
+echo -e "${CYAN}[*] Waiting for Tor to bootstrap...${NC}"
+MAX_RETRIES=30
+COUNT=0
+BOOTSTRAPPED=false
 
-                            TORRC="/etc/tor/torrc"
-                            if [ -f "$TORRC" ]; then
-                                if ! grep -q "ControlPort 9051" "$TORRC"; then
-                                        echo "" | sudo tee -a "$TORRC" > /dev/null
-                                                echo "# Added by IP Changer" | sudo tee -a "$TORRC" > /dev/null
-                                                        echo "ControlPort 9051" | sudo tee -a "$TORRC" > /dev/null
-                                                                echo "CookieAuthentication 1" | sudo tee -a "$TORRC" > /dev/null
-                                                                        echo -e "${GREEN}[OK] Tor control port configured${NC}"
-                                                                            else
-                                                                                    echo -e "${GREEN}[OK] Tor already configured${NC}"
-                                                                                        fi
-                                                                                        else
-                                                                                            echo -e "${YELLOW}[!] torrc not found. Creating default config...${NC}"
-                                                                                                sudo mkdir -p /etc/tor
-                                                                                                    echo "SocksPort 9050" | sudo tee "$TORRC" > /dev/null
-                                                                                                        echo "ControlPort 9051" | sudo tee -a "$TORRC" > /dev/null
-                                                                                                            echo "CookieAuthentication 1" | sudo tee -a "$TORRC" > /dev/null
-                                                                                                            fi
-                                                                                                            
-                                                                                                            # Step 4: Fix permissions for Tor cookie
-                                                                                                            echo -e "${CYAN}[*] Fixing Tor permissions...${NC}"
-                                                                                                            if id -nG "$USER" | grep -qw "debian-tor"; then
-                                                                                                                echo -e "${GREEN}[OK] User already in debian-tor group${NC}"
-                                                                                                                else
-                                                                                                                    sudo usermod -aG debian-tor "$USER" 2>/dev/null || true
-                                                                                                                        echo -e "${GREEN}[OK] Added user to debian-tor group${NC}"
-                                                                                                                        fi
-                                                                                                                        
-                                                                                                                        # Step 5: Create symlink for easy access
-                                                                                                                        echo -e "${CYAN}[*] Creating command symlink...${NC}"
-                                                                                                                        chmod +x "$SCRIPT_DIR/ipchanger.py"
-                                                                                                                        sudo ln -sf "$SCRIPT_DIR/ipchanger.py" /usr/local/bin/ipchanger 2>/dev/null || true
-                                                                                                                        
-                                                                                                                        # Step 6: Enable and start Tor
-                                                                                                                        echo -e "${CYAN}[*] Starting Tor service...${NC}"
-                                                                                                                        sudo systemctl daemon-reload 2>/dev/null || true
-                                                                                                                        sudo systemctl unmask tor 2>/dev/null || true
-                                                                                                                        sudo systemctl enable tor 2>/dev/null || true
-                                                                                                                        sudo systemctl restart tor@default 2>/dev/null || true
-                                                                                                                        sudo systemctl restart tor 2>/dev/null || sudo service tor restart 2>/dev/null || true
-                                                                                                                        
-                                                                                                                        # Wait for Tor to bootstrap
-                                                                                                                        echo -e "${CYAN}[*] Waiting for Tor to bootstrap...${NC}"
-                                                                                                                        MAX_RETRIES=45
-                                                                                                                        COUNT=0
-                                                                                                                        BOOTSTRAPPED=false
-                                                                                                                        
-                                                                                                                        while [ $COUNT -lt $MAX_RETRIES ]; do
-                                                                                                                            if ss -tln | grep -q ":9052"; then
-                                                                                                                                    BOOTSTRAPPED=true
-                                                                                                                                            break
-                                                                                                                                                fi
-                                                                                                                                                    sleep 1
-                                                                                                                                                        COUNT=$((COUNT + 1))
-                                                                                                                                                            echo -ne "\r[*] Progress: $((COUNT * 100 / MAX_RETRIES))%"
-                                                                                                                                                            done
-                                                                                                                                                            echo -e "\r[*] Ready!                        "
-                                                                                                                                                            
-                                                                                                                                                            # Verify
-                                                                                                                                                            if [ "$BOOTSTRAPPED" = true ]; then
-                                                                                                                                                                echo -e "${GREEN}[OK] Tor SOCKS port (9052) is active${NC}"
-                                                                                                                                                                    if ss -tlnp 2>/dev/null | grep -q ":9051" || ss -tln 2>/dev/null | grep -q ":9051"; then
-                                                                                                                                                                            echo -e "${GREEN}[OK] Tor Control port (9051) is active${NC}"
-                                                                                                                                                                                else
-                                                                                                                                                                                        echo -e "${YELLOW}[!] Tor Control port (9051) not detected, but SOCKS is ready.${NC}"
-                                                                                                                                                                                            fi
-                                                                                                                                                                                            else
-                                                                                                                                                                                                echo -e "${RED}[ERROR] Tor bootstrap timed out. Please check 'sudo journalctl -u tor'${NC}"
-                                                                                                                                                                                                fi
-                                                                                                                                                                                                
-                                                                                                                                                                                                echo ""
-                                                                                                                                                                                                echo -e "${GREEN}${BOLD}============================================"
-                                                                                                                                                                                                echo -e "|     Installation Complete!                |"
-                                                                                                                                                                                                echo -e "============================================${NC}"
-                                                                                                                                                                                                echo ""
-                                                                                                                                                                                                echo -e "${CYAN}Usage:${NC}"
-                                                                                                                                                                                                echo -e "  ${BOLD}ipchanger -s 10${NC}     Change IP every 10 seconds"
-                                                                                                                                                                                                echo -e "  ${BOLD}ipchanger -s 30${NC}     Change IP every 30 seconds"
-                                                                                                                                                                                                echo -e "  ${BOLD}python3 $SCRIPT_DIR/ipchanger.py -s 10${NC}"
-                                                                                                                                                                                                echo ""
-                                                                                                                                                                                                
+while [ $COUNT -lt $MAX_RETRIES ]; do
+    if ss -tln | grep -q ":9052" || ss -tln | grep -q ":9050"; then
+        BOOTSTRAPPED=true
+        break
+    fi
+    sleep 1
+    COUNT=$((COUNT + 1))
+    echo -ne "\r[*] Progress: $((COUNT * 100 / MAX_RETRIES))%"
+done
+echo -e "\r[*] Ready!                        "
+
+# Verify
+if [ "$BOOTSTRAPPED" = true ]; then
+    echo -e "${GREEN}[✓] Tor SOCKS port is active${NC}"
+else
+    echo -e "${YELLOW}[!] Tor bootstrap timed out. It might still be starting in the background.${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}${BOLD}┌──────────────────────────────────────────┐"
+echo -e "│     Installation Complete!               │"
+echo -e "└──────────────────────────────────────────┘${NC}"
+echo ""
+echo -e "${CYAN}Usage:${NC}"
+echo -e "  ${BOLD}sudo ipchanger run -s 10${NC}     Change IP every 10 seconds"
+echo -e "  ${BOLD}sudo ipchanger run -c us${NC}     Use US region only"
+echo ""
