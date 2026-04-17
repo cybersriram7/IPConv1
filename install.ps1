@@ -65,14 +65,19 @@ if ($torCheck) {
     $commonPaths = @(
         "$env:ProgramFiles\Tor\tor.exe",
         "$env:ProgramFiles (x86)\Tor\tor.exe",
-        "$env:LocalAppData\Tor Browser\Browser\TorBrowser\Tor\tor.exe"
+        "$env:ProgramData\Tor\tor.exe",
+        "$env:LocalAppData\Tor Browser\Browser\TorBrowser\Tor\tor.exe",
+        "$HOME\Desktop\Tor Browser\Browser\TorBrowser\Tor\tor.exe",
+        "$HOME\Downloads\Tor Browser\Browser\TorBrowser\Tor\tor.exe",
+        "$PSScriptRoot\tor.exe",
+        "$PSScriptRoot\Tor\tor.exe"
     )
     
     $foundTor = $false
     foreach ($path in $commonPaths) {
         if (Test-Path $path) {
             Write-Host "[V] Found Tor at: $path" -ForegroundColor Green
-            Write-Host "[!] Note: You should add this path to your System Environment Variables (PATH)." -ForegroundColor Yellow
+            Write-Host "[!] Note: To run 'tor' from anywhere, add this path to your Environment Variables." -ForegroundColor Yellow
             $foundTor = $true
             break
         }

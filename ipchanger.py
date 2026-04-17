@@ -228,24 +228,60 @@ class TorManager:
     @staticmethod
     def _get_tor_path():
         """Find the Tor executable path across platforms."""
+        # 1. Check if it's already in the system PATH
         path = shutil.which("tor") or shutil.which("tor.exe")
         if path: return path
+
         if is_windows():
-            common = [
-                os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "Tor", "tor.exe"),
-                os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), "Tor", "tor.exe"),
-                os.path.join(os.environ.get("LocalAppData", ""), "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+            # 2. Define common search locations
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            user_profile = os.environ.get("USERPROFILE", "")
+            local_appdata = os.environ.get("LocalAppData", "")
+            prog_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+            prog_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
+            prog_data = os.environ.get("ProgramData", "C:\\ProgramData")
+
+            search_paths = [
+                # Project & Runtime directories
+                os.path.join(script_dir, "tor.exe"),
+                os.path.join(script_dir, "Tor", "tor.exe"),
                 os.path.join(os.getcwd(), "tor.exe"),
-                os.path.join(os.getcwd(), "Tor", "tor.exe")
+                os.path.join(os.getcwd(), "Tor", "tor.exe"),
+                
+                # Official Tor Expert Bundle / Service paths
+                os.path.join(prog_files, "Tor", "tor.exe"),
+                os.path.join(prog_files_x86, "Tor", "tor.exe"),
+                os.path.join(prog_data, "Tor", "tor.exe"),
+                
+                # Tor Browser common locations
+                os.path.join(local_appdata, "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+                os.path.join(user_profile, "Desktop", "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+                os.path.join(user_profile, "Downloads", "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+                
+                # Brave Browser (built-in Tor)
+                os.path.join(local_appdata, "BraveSoftware", "Brave-Browser", "User Data", "tor", "tor.exe")
             ]
-            for p in common:
-                if os.path.exists(p): return p
+            
+            for p in search_paths:
+                if p and os.path.exists(p):
+                    return os.path.abspath(p)
+            
+            # 3. Final Fail-Safe: Recursive search in the script directory
+            try:
+                for root, dirs, files in os.walk(script_dir):
+                    if "tor.exe" in files:
+                        return os.path.abspath(os.path.join(root, "tor.exe"))
+            except: pass
+        
         return None
 
     def start(self, country=None):
         path = self._get_tor_path()
         if not path:
-            print_msg("X", "Tor executable not found! Please install Tor Expert Bundle.", C.RED)
+            print_msg("X", "Tor executable not found!", C.RED)
+            print_msg("!", "Searched: PATH, Desktop, Downloads, Program Files, and Project folder.", C.YELLOW)
+            print_msg("!", "Download Tor Expert Bundle: https://www.torproject.org/download/tor/", C.YELLOW)
+            print_msg("*", "Quick Fix: Extract 'tor.exe' into a 'Tor' folder inside this directory.", C.CYAN)
             return False
 
         # Cleanup existing ports
