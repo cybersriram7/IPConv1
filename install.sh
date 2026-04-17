@@ -1,7 +1,7 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------------
 # IP Changer - Installation Script
-# ═══════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------------
 
 set -e
 
@@ -14,16 +14,16 @@ NC='\033[0m'
 BOLD='\033[1m'
 
 echo -e "${CYAN}${BOLD}"
-echo "┌──────────────────────────────────────────┐"
-echo "│      IP Changer - Installation           │"
-echo "└──────────────────────────────────────────┘"
+echo "+------------------------------------------+"
+echo "|      IP Changer - Installation           |"
+echo "+------------------------------------------+"
 echo -e "${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${YELLOW}[!] This script needs root privileges to install system packages.${NC}"
+    echo -e "${YELLOW}[!] This script needs root privileges.${NC}"
     echo -e "${YELLOW}[*] Re-running with sudo...${NC}"
     exec sudo bash "$0" "$@"
 fi
@@ -39,7 +39,7 @@ elif command -v pacman &> /dev/null; then
 elif command -v dnf &> /dev/null; then
     dnf install -y tor curl python3 python3-pip iptables iproute2
 else
-    echo -e "${RED}[✗] Unsupported package manager. Please install tor, curl, python3, and iptables manually.${NC}"
+    echo -e "${RED}[X] Unsupported package manager. Install tor, curl, python3, and iptables manually.${NC}"
 fi
 
 # Step 2: Install Python dependencies
@@ -58,9 +58,9 @@ if [ -f "$TORRC" ]; then
         echo "# Added by IPCO V.1" | tee -a "$TORRC" > /dev/null
         echo "ControlPort 9051" | tee -a "$TORRC" > /dev/null
         echo "CookieAuthentication 1" | tee -a "$TORRC" > /dev/null
-        echo -e "${GREEN}[✓] Tor control port configured${NC}"
+        echo -e "${GREEN}[V] Tor control port configured${NC}"
     else
-        echo -e "${GREEN}[✓] Tor already configured${NC}"
+        echo -e "${GREEN}[V] Tor already configured${NC}"
     fi
 else
     echo -e "${YELLOW}[!] torrc not found. Creating default config...${NC}"
@@ -72,12 +72,11 @@ fi
 
 # Step 4: Fix permissions for Tor
 echo -e "${CYAN}[*] Fixing Tor permissions...${NC}"
-# Use the actual user who ran sudo
 ACTUAL_USER=${SUDO_USER:-$USER}
 if [ "$ACTUAL_USER" != "root" ]; then
     usermod -aG debian-tor "$ACTUAL_USER" 2>/dev/null || true
     usermod -aG tor "$ACTUAL_USER" 2>/dev/null || true
-    echo -e "${GREEN}[✓] Added user $ACTUAL_USER to Tor groups${NC}"
+    echo -e "${GREEN}[V] Added user $ACTUAL_USER to Tor groups${NC}"
 fi
 
 # Step 5: Create symlink for easy access
@@ -87,10 +86,13 @@ ln -sf "$SCRIPT_DIR/ipchanger.py" /usr/local/bin/ipchanger 2>/dev/null || true
 
 # Step 6: Enable and start Tor
 echo -e "${CYAN}[*] Starting Tor service...${NC}"
-systemctl daemon-reload 2>/dev/null || true
-systemctl unmask tor 2>/dev/null || true
-systemctl enable tor 2>/dev/null || true
-systemctl restart tor 2>/dev/null || service tor restart 2>/dev/null || true
+if command -v systemctl &> /dev/null; then
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl unmask tor 2>/dev/null || true
+    systemctl enable tor 2>/dev/null || true
+    systemctl restart tor 2>/dev/null || true
+fi
+service tor restart 2>/dev/null || true
 
 # Wait for Tor to bootstrap
 echo -e "${CYAN}[*] Waiting for Tor to bootstrap...${NC}"
@@ -111,15 +113,16 @@ echo -e "\r[*] Ready!                        "
 
 # Verify
 if [ "$BOOTSTRAPPED" = true ]; then
-    echo -e "${GREEN}[✓] Tor SOCKS port is active${NC}"
+    echo -e "${GREEN}[V] Tor SOCKS port is active${NC}"
 else
     echo -e "${YELLOW}[!] Tor bootstrap timed out. It might still be starting in the background.${NC}"
 fi
 
 echo ""
-echo -e "${GREEN}${BOLD}┌──────────────────────────────────────────┐"
-echo -e "│     Installation Complete!               │"
-echo -e "└──────────────────────────────────────────┘${NC}"
+echo -e "${GREEN}${BOLD}+------------------------------------------+"
+echo -e "|     Installation Complete!               |"
+echo -e "+------------------------------------------+"
+echo -e "${NC}"
 echo ""
 echo -e "${CYAN}Usage:${NC}"
 echo -e "  ${BOLD}sudo ipchanger run -s 10${NC}     Change IP every 10 seconds"
