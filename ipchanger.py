@@ -127,15 +127,15 @@ class TransparentProxy:
                 winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
                 winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "socks=127.0.0.1:9052")
                 winreg.CloseKey(key)
+                # Refresh system proxy
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
                 if kill_switch:
-                    # Robust netsh call
                     tor_path = TorManager._get_tor_path()
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block"])
-                    TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"])
+                    TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"])
                     if tor_path:
-                         TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Tor", "dir=out", "action=allow", f"program={tor_path}"])
+                        TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Tor", "dir=out", "action=allow", f"program={tor_path}"])
                 print_msg("V", "Windows Proxy enabled.", C.GREEN)
             except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
             return
@@ -164,10 +164,8 @@ class TransparentProxy:
                 ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
             ]
         for cmd in cmds: TransparentProxy.run_cmd(cmd)
-
         if shutil.which("ip6tables"):
             TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
-        
         print_msg("V", "Transparent proxy active.", C.GREEN)
 
     @staticmethod
@@ -180,8 +178,8 @@ class TransparentProxy:
                 winreg.CloseKey(key)
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
-                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Local"])
-                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Tor"])
+                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Local"])
+                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Tor"])
             except: pass
             return
 
@@ -207,7 +205,6 @@ class TorManager:
         """Find the Tor executable path across platforms."""
         path = shutil.which("tor") or shutil.which("tor.exe")
         if path: return path
-        
         if is_windows():
             common = [
                 os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "Tor", "tor.exe"),
@@ -228,8 +225,12 @@ class TorManager:
 
         if is_windows():
             try:
+                # Use creationflags to prevent popup console if running as background process
+                flags = 0
+                if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+                    flags = subprocess.CREATE_NO_WINDOW
                 subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
             except Exception as e:
                 print_msg("X", f"Failed to launch Tor: {e}", C.RED)
                 return False
@@ -299,26 +300,20 @@ class IPChanger:
         clear_screen()
         print_banner()
         print_msg("*", "Initializing system...", C.CYAN)
-        
         if not self.tor.start(self.country):
             print_msg("X", "Could not start Tor service.", C.RED)
             return
-        
         TransparentProxy.enable(self.kill_switch)
         print_status_table(True, self.interval, self.country, self.kill_switch)
-        
         while not self.stop_event.is_set():
             ip = self.tor.get_ip()
             if ip:
                 country = self.tor.get_country(ip)
                 print_ip_change(ip, country)
-            
             if not self.tor.rotate():
                 print_msg("!", "Rotation signal failed, reconnecting...", C.YELLOW)
                 self.tor.connect()
-            
             if self.stop_event.wait(self.interval): break
-        
         self.shutdown()
 
     def shutdown(self):
@@ -333,12 +328,10 @@ def main():
     parser.add_argument("-c", "--country", type=str)
     parser.add_argument("-k", "--kill-switch", action="store_true")
     args = parser.parse_args()
-
     if not is_admin():
         msg = "Administrator on Windows" if is_windows() else "root/administrator on Linux"
         print(colorize(f"[X] ERROR: Must run as {msg}.", C.RED, C.BOLD))
         sys.exit(1)
-
     changer = IPChanger(args.seconds, args.country, args.kill_switch)
     signal.signal(signal.SIGINT, lambda s, f: changer.stop_event.set())
     changer.run()
