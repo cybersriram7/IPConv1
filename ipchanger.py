@@ -130,7 +130,12 @@ class TransparentProxy:
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
                 if kill_switch:
+                    # Robust netsh call
+                    tor_path = TorManager._get_tor_path()
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block"])
+                    TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"])
+                    if tor_path:
+                         TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Tor", "dir=out", "action=allow", f"program={tor_path}"])
                 print_msg("V", "Windows Proxy enabled.", C.GREEN)
             except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
             return
@@ -175,6 +180,8 @@ class TransparentProxy:
                 winreg.CloseKey(key)
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
+                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Local"])
+                TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Tor"])
             except: pass
             return
 
@@ -195,19 +202,44 @@ class TorManager:
         self.ctrl_port = 9051
         self.controller = None
 
-    def start(self, country=None):
+    @staticmethod
+    def _get_tor_path():
+        """Find the Tor executable path across platforms."""
+        path = shutil.which("tor") or shutil.which("tor.exe")
+        if path: return path
+        
         if is_windows():
-            path = shutil.which("tor") or "tor.exe"
-            subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            common = [
+                os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "Tor", "tor.exe"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), "Tor", "tor.exe"),
+                os.path.join(os.environ.get("LocalAppData", ""), "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+                os.path.join(os.getcwd(), "tor.exe"),
+                os.path.join(os.getcwd(), "Tor", "tor.exe")
+            ]
+            for p in common:
+                if os.path.exists(p): return p
+        return None
+
+    def start(self, country=None):
+        path = self._get_tor_path()
+        if not path:
+            print_msg("X", "Tor executable not found! Please install Tor.", C.RED)
+            return False
+
+        if is_windows():
+            try:
+                subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print_msg("X", f"Failed to launch Tor: {e}", C.RED)
+                return False
         else:
             if shutil.which("systemctl"):
                 subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
             elif shutil.which("service"):
                 subprocess.run(["sudo", "service", "tor", "restart"], capture_output=True)
             else:
-                bin_path = shutil.which("tor") or "/usr/bin/tor"
-                subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
+                subprocess.Popen(["sudo", path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         for _ in range(20):
