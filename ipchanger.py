@@ -15,9 +15,9 @@ import threading
 import socket
 import json
 import urllib.request
+import platform
 from datetime import datetime
 from pathlib import Path
-import platform
 
 try:
     import stem
@@ -49,9 +49,6 @@ class C:
     
     # Background
     BG_RED   = '\033[41m'
-    BG_GREEN = '\033[42m'
-    BG_BLUE  = '\033[44m'
-    BG_CYAN  = '\033[46m'
 
 
 def colorize(text, *colors):
@@ -80,17 +77,6 @@ def clear_screen():
     os.system('cls' if is_windows() else 'clear')
 
 
-def run_cmd(cmd, sudo=True, capture=False, timeout=None):
-    """Run a command with optional sudo on Linux/macOS."""
-    if sudo and not is_windows():
-        full_cmd = ["sudo"] + cmd
-    else:
-        full_cmd = cmd
-    
-    if capture:
-        return subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
-    else:
-        return subprocess.run(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -107,7 +93,6 @@ BANNER = r"""
 
 
 def print_banner():
-    """Print the application banner."""
     print(colorize(BANNER, C.CYAN, C.BOLD))
     print(colorize("                                          [ DEVELOPED BY SRIRAM ]", C.MAGENTA, C.BOLD))
 
@@ -221,16 +206,34 @@ class TransparentProxy:
             print_info(f"Enabling Windows System Proxy {'with KILL SWITCH' if kill_switch else ''}...")
             try:
                 import winreg
+                import ctypes
+                
+                # Update registry
                 reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
                 winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
                 winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "socks=127.0.0.1:9052")
                 winreg.CloseKey(key)
                 
+                # Force refresh of proxy settings so browsers pick it up instantly
+                # INTERNET_OPTION_SETTINGS_CHANGED = 39
+                # INTERNET_OPTION_REFRESH = 37
+                ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
+                ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
+                
                 if kill_switch:
                     print_info("Enabling Windows Kill Switch (netsh)...")
+                    tor_path = TorManager._get_tor_path()
+                    
+                    # 1. Block all outbound traffic
                     subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KillSwitch", "dir=out", "action=block"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # 2. Allow Loopback (essential for SOCKS/Control ports)
                     subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Local", "dir=out", "action=allow", "remoteip=127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # 3. Allow Tor process itself to talk to the internet
+                    if tor_path:
+                        subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Allow_Tor", "dir=out", "action=allow", f"program={tor_path}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    else:
+                        print_warning("Could not find tor.exe absolute path. Kill switch might block Tor itself!")
                 
                 print_success(f"Windows System Proxy enabled {'(Kill-Switch ACTIVE)' if kill_switch else ''}.")
                 return
@@ -299,7 +302,14 @@ class TransparentProxy:
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
                 winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
                 winreg.CloseKey(key)
+                
+                # Refresh settings
+                import ctypes
+                ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
+                ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
+                
                 subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KillSwitch"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 subprocess.run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Allow_Local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print_success("Windows settings restored.")
             except:
@@ -326,15 +336,30 @@ class TorManager:
     def __init__(self):
         self._controller = None
         self._running = False
-        self._ip_count = 0
-        self._start_time = None
     
+    @staticmethod
+    def _get_tor_path():
+        """Find the Tor executable path across platforms."""
+        path = shutil.which("tor") or shutil.which("tor.exe")
+        if path: return path
+        
+        if is_windows():
+            common = [
+                os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "Tor", "tor.exe"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), "Tor", "tor.exe"),
+                os.path.join(os.environ.get("LocalAppData", ""), "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe")
+            ]
+            for p in common:
+                if os.path.exists(p): return p
+        return None
+
     def check_tor_installed(self):
         """Check if Tor is installed on the system."""
         if not HAS_STEM:
             print_error("Python 'stem' library is missing! Install it with: pip3 install stem")
             return False
-        return shutil.which("tor") is not None
+        
+        return self._get_tor_path() is not None
     
     def install_tor(self):
         """Attempt to install Tor."""
@@ -368,15 +393,16 @@ class TorManager:
             print_error(f"Failed to install Tor: {e}")
             return False
     
+    def _get_torrc_path(self):
+        return Path("torrc") if is_windows() else Path("/etc/tor/torrc")
+
     def configure_tor(self, country=None):
         """Configure Tor for IP rotation, HTTP Tunneling, and Region Selection."""
+        torrc_path = self._get_torrc_path()
         if is_windows():
-            # Windows: usually we use a local data directory in the current folder or AppData
-            torrc_path = Path("torrc")
             data_dir = Path("tor_data").absolute()
             data_dir.mkdir(exist_ok=True)
         else:
-            torrc_path = Path("/etc/tor/torrc")
             data_dir = Path("/var/lib/tor")
         
         # Build configuration content
@@ -465,31 +491,6 @@ class TorManager:
         except:
             return False
 
-    def _get_tor_logs(self):
-        """Capture last 20 lines of Tor logs from journalctl or system logs."""
-        if is_windows(): return "Logs not available on Windows."
-        log_lines = []
-        try:
-            # Check main unit and instance unit
-            for unit in ["tor", "tor@default", "tor.service"]:
-                res = subprocess.run(["sudo", "journalctl", "-u", unit, "--no-pager", "-n", "10"], 
-                                     capture_output=True, text=True, timeout=5)
-                if res.stdout.strip():
-                    log_lines.append(f"--- {unit} Logs ---")
-                    log_lines.append(res.stdout.strip())
-            
-            # Fallback to tailing /var/log/tor/log if it exists
-            for logfile in ["/var/log/tor/log", "/var/log/tor/error.log"]:
-                if os.path.exists(logfile):
-                    res = subprocess.run(["sudo", "tail", "-n", "10", logfile], 
-                                         capture_output=True, text=True, timeout=5)
-                    if res.stdout.strip():
-                        log_lines.append(f"--- {logfile} ---")
-                        log_lines.append(res.stdout.strip())
-            
-            return "\n".join(log_lines) if log_lines else "No Tor logs found in system journal or log files."
-        except:
-            return "Could not retrieve Tor logs."
 
     def fix_data_dir_permissions(self):
         """Attempt to fix permissions for Tor data directory."""
@@ -520,7 +521,9 @@ class TorManager:
                 if self._check_port_occupied(self.SOCKS_PORT):
                     print_warning(f"Port {self.SOCKS_PORT} is already in use by another process!")
                 
-                subprocess.Popen(["tor", "-f", "torrc"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                tor_executable = self._get_tor_path() or "tor"
+                
+                subprocess.Popen([tor_executable, "-f", str(self._get_torrc_path())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 for i in range(15):
                     if self._check_tor_running():
                         return True
@@ -581,7 +584,7 @@ class TorManager:
                     launch_user = u
                     break
             
-            subprocess.Popen(["sudo", "-u", launch_user, tor_bin, "-f", "/etc/tor/torrc", "--RunAsDaemon", "1"], 
+            subprocess.Popen(["sudo", "-u", launch_user, tor_bin, "-f", str(self._get_torrc_path()), "--RunAsDaemon", "1"], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             for _ in range(20):
@@ -635,16 +638,6 @@ class TorManager:
         except Exception:
             return False
     
-    def _check_control_port(self):
-        """Check if Tor control port is responding."""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3)
-            result = sock.connect_ex(('127.0.0.1', self.CONTROL_PORT))
-            sock.close()
-            return result == 0
-        except Exception:
-            return False
     
     def connect_controller(self):
         """Connect to the Tor control port using stem."""
@@ -666,7 +659,6 @@ class TorManager:
                     return False
             
             self._controller.signal(Signal.NEWNYM)
-            self._ip_count += 1
             return True
         except Exception as e:
             return False
@@ -676,7 +668,6 @@ class TorManager:
         # Try both IPv6 and IPv4 detection
         for service in ["https://api64.ipify.org", "https://api.ipify.org"]:
             try:
-                import urllib.request
                 req = urllib.request.Request(service, headers={'User-Agent': 'curl/7.68.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
                     return response.read().decode('utf-8').strip()
@@ -692,7 +683,6 @@ class TorManager:
     def get_ip_country(self, ip):
         """Fetch country info."""
         try:
-            import urllib.request, json
             req = urllib.request.Request(f"http://ip-api.com/json/{ip}?fields=country", headers={'User-Agent': 'curl/7.68.0'})
             with urllib.request.urlopen(req, timeout=2) as response:
                 data = json.loads(response.read().decode('utf-8'))
@@ -748,49 +738,29 @@ class IPChanger:
         
         if not self.tor.start_tor_service():
             print_error("Failed to start Tor service automatically.")
-            print_info("Starting Diagnostics...")
-            logs = self.tor._get_tor_logs()
-            print(colorize("\n--- Last 10 lines of Tor Logs ---", C.YELLOW))
-            print(logs)
-            print(colorize("--------------------------------\n", C.YELLOW))
-            
-            print_info("Troubleshooting tips:")
-            print_info("1. Run 'sudo systemctl unmask tor'")
-            print_info("2. Check if another VPN/Tor tool (like anonsurf) is active")
-            print_info("3. Try manual start: 'sudo tor -f /etc/tor/torrc'")
             return 1
             
-        tor_running = self.tor._check_tor_running()
-        if HAS_STEM:
-            self.tor.connect_controller()
+        self.tor.connect_controller()
         TransparentProxy.enable(kill_switch=self.kill_switch)
         
         print()
-        print_status_table(tor_running, self.interval, country=self.country, kill_switch=self.kill_switch)
+        print_status_table(True, self.interval, country=self.country, kill_switch=self.kill_switch)
         print()
         
-        # Initial rotation
-        self.tor.request_new_ip()
-        
         while not self._stop_event.is_set():
-            # Get IP in background or with short timeout
             curr_ip = self.tor.get_current_ip()
-            
             if curr_ip and curr_ip != self._last_ip:
                 self._last_ip = curr_ip
                 country = self.tor.get_ip_country(curr_ip)
                 print_ip_change(curr_ip, country)
                 self._rotation_count += 1
             
-            # Request NEWNYM (with MaxNewNymSpam 1, this works very fast)
-            if not self.tor.request_new_ip():
-                # Fallback only if controller dies
-                self.tor.restart_tor_service()
-                time.sleep(1)
-            
-            # Wait for next interval
             if self._stop_event.wait(timeout=self.interval):
                 break
+                
+            if not self.tor.request_new_ip():
+                self.tor.restart_tor_service()
+                time.sleep(1)
         
         self._shutdown()
         return 0
@@ -799,20 +769,13 @@ class IPChanger:
         self._stop_event.set()
     
     def _shutdown(self):
-        """Ultra-fast shutdown with immediate feedback."""
-        # Visual feedback FIRST
+        """Clean shutdown and network restoration."""
         print(colorize("\n" + "─" * 67, C.CYAN))
-        print(colorize("               Good byee! 👋💗", C.MAGENTA, C.BOLD))
+        print(colorize("               Cleaning up and shutting down... 👋", C.MAGENTA, C.BOLD))
         print_info(f"Total IP rotations: {self._rotation_count}")
         print()
-
-        # Restore pure networking in the background/fast
         TransparentProxy.disable()
-        
-        # Non-blocking cleanup
         self.tor.cleanup()
-        
-        # Force exit immediately
         os._exit(0)
 
 
@@ -830,33 +793,21 @@ def main():
 
     parser = argparse.ArgumentParser(description="IP Changer - Tor IP Rotation Tool")
     
-    # Optional flags that can be used directly or within 'run' command
+    # Global arguments
     parser.add_argument("-s", "--seconds", type=int, default=10, help="Rotation interval (default: 10)")
     parser.add_argument("-c", "--country", type=str, default=None, help="Target country code (e.g. us, de, uk)")
     parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable network kill-switch")
     
     subparsers = parser.add_subparsers(dest="command")
-    
-    run_parser = subparsers.add_parser("run", help="Start IP rotation (default)")
-    run_parser.add_argument("-s", "--seconds", type=int, help="Rotation interval")
-    run_parser.add_argument("-c", "--country", type=str, help="Target country code")
-    run_parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable kill-switch")
-    
+    subparsers.add_parser("run", help="Start IP rotation (default)")
     subparsers.add_parser("stop", help="Stop IP rotation and restore network")
     subparsers.add_parser("test", help="Test current IP and anonymity")
     
-    args, unknown = parser.parse_known_args()
-    
-    # Handle the command
+    args = parser.parse_args()
     cmd = args.command or "run"
     
-    # Consolidate arguments (favor subparser args if provided)
-    secs = getattr(args, "seconds", 10) or 10
-    country = getattr(args, "country", None)
-    kill_switch = getattr(args, "kill_switch", False)
-    
     if cmd == "run":
-        changer = IPChanger(interval=secs, country=country, kill_switch=kill_switch)
+        changer = IPChanger(interval=args.seconds, country=args.country, kill_switch=args.kill_switch)
         changer.run()
     elif cmd == "stop":
         print_info("Stopping IP Changer...")
@@ -875,4 +826,4 @@ def main():
             print_error("Connection Failed or Not Routed through Tor.")
 
 if __name__ == "__main__":
-       main()
+    main()

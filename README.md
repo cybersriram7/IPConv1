@@ -1,12 +1,11 @@
-# IPCon v.1 & IP Changer
+# IP Changer - Fast IP Rotation Tool
 
-Professional IP Rotation System using the Tor network. This tool provides system-wide transparent proxying, multi-provider support, and a robust kill-switch.
+Professional IP Rotation System using the Tor network. This tool provides system-wide transparent proxying and a robust kill-switch.
 
 ## 🚀 Features
 - **Automatic IP Rotation**: Change your public IP address at set intervals.
 - **Transparent Proxy**: Routes all system-wide TCP traffic through Tor automatically.
 - **Kill Switch**: Prevents IP leaks if the connection drops.
-- **Multi-Provider Support**: Compatible with Tor, OpenVPN, and WireGuard.
 - **DNS Leak Protection**: Forces requests through Tor's DNS port.
 - **Fast Mode**: Optimized for high-speed IP rotation (down to 5 seconds).
 
