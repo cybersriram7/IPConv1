@@ -275,14 +275,56 @@ class TorManager:
         
         return None
 
+    @staticmethod
+    def auto_install_tor():
+        """Automatically download and install Tor Expert Bundle on Windows."""
+        if not is_windows(): return False
+        
+        print_msg("*", "Tor not found. Attempting automatic installation...", C.CYAN)
+        # Using a stable version of Tor Expert Bundle
+        url = "https://dist.torproject.org/torbrowser/14.0.1/tor-expert-bundle-windows-x86_64-14.0.1.tar.gz"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        target_dir = os.path.join(script_dir, "Tor")
+        tar_path = os.path.join(script_dir, "tor_expert.tar.gz")
+        
+        try:
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+            
+            print_msg("*", "Downloading Tor Expert Bundle (approx. 20MB)...", C.GRAY)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req) as response, open(tar_path, 'wb') as out_file:
+                shutil.copyfileobj(response, out_file)
+            
+            import tarfile
+            print_msg("*", "Extracting files...", C.GRAY)
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=target_dir)
+            
+            if os.path.exists(tar_path):
+                os.remove(tar_path)
+            
+            print_msg("V", "Automatic installation complete!", C.GREEN)
+            return True
+        except Exception as e:
+            print_msg("X", f"Auto-installation failed: {e}", C.RED)
+            print_msg("!", "Please install it manually from https://www.torproject.org/download/tor/", C.YELLOW)
+            return False
+
     def start(self, country=None):
         path = self._get_tor_path()
         if not path:
-            print_msg("X", "Tor executable not found!", C.RED)
-            print_msg("!", "Searched: PATH, Desktop, Downloads, Program Files, and Project folder.", C.YELLOW)
-            print_msg("!", "Download Tor Expert Bundle: https://www.torproject.org/download/tor/", C.YELLOW)
-            print_msg("*", "Quick Fix: Extract 'tor.exe' into a 'Tor' folder inside this directory.", C.CYAN)
-            return False
+            if is_windows():
+                if self.auto_install_tor():
+                    path = self._get_tor_path()
+            
+            if not path:
+                print_msg("X", "Tor executable not found!", C.RED)
+                print_msg("!", "Searched: PATH, Desktop, Downloads, Program Files, and Project folder.", C.YELLOW)
+                print_msg("!", "Download Tor Expert Bundle: https://www.torproject.org/download/tor/", C.YELLOW)
+                print_msg("*", "Quick Fix: Extract 'tor.exe' into a 'Tor' folder inside this directory.", C.CYAN)
+                return False
 
         # Cleanup existing ports
         try:
