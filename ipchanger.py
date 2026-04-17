@@ -481,7 +481,31 @@ def main():
         parser.add_argument("-s", "--seconds", type=int, default=10, help="Interval in seconds")
         parser.add_argument("-c", "--country", type=str, help="Specific country code (e.g. us, de)")
         parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable network kill switch")
+        parser.add_argument("--check", action="store_true", help="Run system diagnostics")
         args = parser.parse_args()
+
+        if args.check:
+            print_banner()
+            print_msg("*", "Running system diagnostics...", C.CYAN)
+            print_msg("V", f"OS: {platform.system()} {platform.release()}", C.GREEN)
+            
+            if is_admin(): print_msg("V", "Privileges: Administrator/root", C.GREEN)
+            else: print_msg("X", "Privileges: Standard User (Elevated required)", C.RED)
+            
+            path = TorManager._get_tor_path()
+            if path: print_msg("V", f"Tor Executable: {path}", C.GREEN)
+            else: print_msg("X", "Tor Executable: NOT FOUND", C.RED)
+            
+            if HAS_STEM: print_msg("V", "Library 'stem': INSTALLED", C.GREEN)
+            else: print_msg("X", "Library 'stem': MISSING", C.RED)
+            
+            try:
+                urllib.request.urlopen("https://google.com", timeout=5)
+                print_msg("V", "Internet: CONNECTED", C.GREEN)
+            except: print_msg("X", "Internet: DISCONNECTED", C.RED)
+            
+            print_msg("*", "Diagnostics complete.", C.CYAN)
+            sys.exit(0)
 
         if not is_admin():
             msg = "Administrator on Windows" if is_windows() else "root (sudo) on Linux"
