@@ -88,16 +88,19 @@ echo -e "${CYAN}[*] Starting Tor service...${NC}"
 sudo systemctl daemon-reload 2>/dev/null || true
 sudo systemctl unmask tor 2>/dev/null || true
 sudo systemctl enable tor 2>/dev/null || true
+# Try restarting both master and default instance
+sudo systemctl restart tor@default 2>/dev/null || true
 sudo systemctl restart tor 2>/dev/null || sudo service tor restart 2>/dev/null || true
 
 # Wait for Tor to bootstrap
 echo -e "${CYAN}[*] Waiting for Tor to bootstrap...${NC}"
-MAX_RETRIES=30
+MAX_RETRIES=45
 COUNT=0
 BOOTSTRAPPED=false
 
 while [ $COUNT -lt $MAX_RETRIES ]; do
-    if ss -tlnp 2>/dev/null | grep -q ":9052" || ss -tln 2>/dev/null | grep -q ":9052"; then
+    # Check for SOCKS port (9052)
+    if ss -tln | grep -q ":9052"; then
         BOOTSTRAPPED=true
         break
     fi

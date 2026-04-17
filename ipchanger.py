@@ -239,27 +239,33 @@ class TransparentProxy:
                 return
 
         print_info(f"Enabling transparent proxy (routing ALL traffic via Tor {'with KILL SWITCH' if kill_switch else ''})...")
+        
+        # Initial cleanup to ensure a clean state
+        subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "ACCEPT"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         cmds = [
-            ["iptables", "-t", "nat", "-F"],
-            # Route DNS
-            ["iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "5353"],
-            ["iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "5353"],
-            # Exclude Tor traffic itself
+            # Route DNS to Tor DNSPort (9053)
+            ["iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
+            ["iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
+            # Exclude Tor traffic itself by common users
             ["iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"],
+            ["iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"],
             # Loopback safety
             ["iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
-            # Route all other TCP traffic to Tor TransPort
+            # Route all other TCP traffic to Tor TransPort (9040)
             ["iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"],
         ]
         
         # Kill Switch Logic: Block all traffic NOT going to Tor ports
         if kill_switch:
             cmds_filter = [
-                ["iptables", "-F", "OUTPUT"],
                 ["iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"],
+                ["iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "ACCEPT"],
                 ["iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
                 ["iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
-                ["iptables", "-A", "OUTPUT", "-p", "udp", "--dport", "5353", "-j", "ACCEPT"],
+                ["iptables", "-A", "OUTPUT", "-p", "udp", "--dport", "9053", "-j", "ACCEPT"],
                 ["iptables", "-P", "OUTPUT", "DROP"]
             ]
             for cmd in cmds_filter:
@@ -383,19 +389,15 @@ class TorManager:
             "VirtualAddrNetworkIPv4 10.192.0.0/10",
             "AutomapHostsOnResolve 1",
             "TransPort 9040",
-            "DNSPort 5353",
+            "DNSPort 9053",
             f"DataDirectory {data_dir}",
             # Performance & Speed Optimization
-            "ClientUseIPv6 1",
-            "ClientPreferIPv6ORPort 1",
             "MaxCircuitDirtiness 5",
             "NewCircuitPeriod 5",
             "CircuitBuildTimeout 5",
-            "MaxNewNymSpam 1",
             "EnforceDistinctSubnets 1",
             "UseEntryGuards 1",
-            "NumEntryGuards 3",
-            "LearnCircuitBuildTimeout 0"
+            "NumEntryGuards 3"
         ]
         
         if country:
@@ -409,16 +411,18 @@ class TorManager:
             if torrc_path.exists():
                 current_config = torrc_path.read_text()
                 if "Optimized by IPCO V.1" in current_config:
-                    # If country is specified, check if it's already in the config
-                    if country:
-                        if f"ExitNodes {{{country.lower()}}}" in current_config:
-                            print_success(f"Tor already optimized for {country.upper()}, skipping configuration...")
-                            return True
-                    else:
-                        # If no country specified, make sure ExitNodes is NOT in there (or it's global)
-                        if "ExitNodes" not in current_config:
-                            print_success("Tor already optimized, skipping configuration...")
-                            return True
+                    # Check if the DNSPort is up to date and no incompatible options are present
+                    if "DNSPort 9053" in current_config and "MaxNewNymSpam" not in current_config:
+                        # If country is specified, check if it's already in the config
+                        if country:
+                            if f"ExitNodes {{{country.lower()}}}" in current_config:
+                                print_success(f"Tor already optimized for {country.upper()}, skipping configuration...")
+                                return True
+                        else:
+                            # If no country specified, make sure ExitNodes is NOT in there (or it's global)
+                            if "ExitNodes" not in current_config:
+                                print_success("Tor already optimized, skipping configuration...")
+                                return True
 
             print_info(f"Applying Tor configuration {' (Region: ' + country + ')' if country else ''}...")
             
@@ -464,18 +468,26 @@ class TorManager:
     def _get_tor_logs(self):
         """Capture last 20 lines of Tor logs from journalctl or system logs."""
         if is_windows(): return "Logs not available on Windows."
+        log_lines = []
         try:
-            res = subprocess.run(["sudo", "journalctl", "-u", "tor", "--no-pager", "-n", "20"], 
-                                 capture_output=True, text=True, timeout=5)
-            if res.stdout.strip():
-                return res.stdout.strip()
+            # Check main unit and instance unit
+            for unit in ["tor", "tor@default", "tor.service"]:
+                res = subprocess.run(["sudo", "journalctl", "-u", unit, "--no-pager", "-n", "10"], 
+                                     capture_output=True, text=True, timeout=5)
+                if res.stdout.strip():
+                    log_lines.append(f"--- {unit} Logs ---")
+                    log_lines.append(res.stdout.strip())
             
             # Fallback to tailing /var/log/tor/log if it exists
-            if os.path.exists("/var/log/tor/log"):
-                res = subprocess.run(["sudo", "tail", "-n", "20", "/var/log/tor/log"], 
-                                     capture_output=True, text=True, timeout=5)
-                return res.stdout.strip()
-            return "No recent Tor logs found in system journal."
+            for logfile in ["/var/log/tor/log", "/var/log/tor/error.log"]:
+                if os.path.exists(logfile):
+                    res = subprocess.run(["sudo", "tail", "-n", "10", logfile], 
+                                         capture_output=True, text=True, timeout=5)
+                    if res.stdout.strip():
+                        log_lines.append(f"--- {logfile} ---")
+                        log_lines.append(res.stdout.strip())
+            
+            return "\n".join(log_lines) if log_lines else "No Tor logs found in system journal or log files."
         except:
             return "Could not retrieve Tor logs."
 
@@ -486,12 +498,14 @@ class TorManager:
         print_info(f"Checking permissions for {data_dir}...")
         try:
             # Try to identify tor user
-            for user in ["debian-tor", "tor", "tor-daemon"]:
+            for user in ["debian-tor", "tor", "tor-daemon", "toranon", "_tor"]:
                 id_res = subprocess.run(["id", user], capture_output=True)
                 if id_res.returncode == 0:
                     print_info(f"Restoring ownership to user: {user}...")
-                    subprocess.run(["sudo", "chown", "-R", f"{user}:{user}", data_dir], capture_output=True)
-                    subprocess.run(["sudo", "chmod", "700", data_dir], capture_output=True)
+                    for target in [data_dir, "/var/log/tor"]:
+                        if os.path.exists(target):
+                            subprocess.run(["sudo", "chown", "-R", f"{user}:{user}", target], capture_output=True)
+                            subprocess.run(["sudo", "chmod", "700", target], capture_output=True)
                     return True
             return False
         except:
@@ -518,10 +532,15 @@ class TorManager:
 
         try:
             # Check for port conflicts before starting
-            if self._check_port_occupied(self.SOCKS_PORT) or self._check_port_occupied(self.CONTROL_PORT):
-                print_warning(f"Tor ports ({self.SOCKS_PORT}/{self.CONTROL_PORT}) are occupied. Cleaning up...")
+            conflicting_ports = [self.SOCKS_PORT, self.CONTROL_PORT, 9040, 9053]
+            ports_to_clear = [p for p in conflicting_ports if self._check_port_occupied(p)]
+            
+            if ports_to_clear:
+                print_warning(f"Tor ports ({', '.join(map(str, ports_to_clear))}) are occupied. Cleaning up...")
+                subprocess.run(["sudo", "systemctl", "stop", "tor"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "stop", "tor@default"], capture_output=True)
                 subprocess.run(["sudo", "pkill", "-9", "-x", "tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(1)
+                time.sleep(2)
 
             # Ensure systemd is aware of any changes
             subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
@@ -551,10 +570,18 @@ class TorManager:
             # Try permission fix before manual launch
             self.fix_data_dir_permissions()
 
-            # 3. Fallback launch directly
+            # 3. Fallback launch directly (as preferred user if possible)
             print_info("Service start failed. Trying manual launch...")
             tor_bin = shutil.which("tor") or "/usr/bin/tor"
-            subprocess.Popen(["sudo", tor_bin, "-f", "/etc/tor/torrc", "--RunAsDaemon", "1"], 
+            
+            # Find a suitable user for manual launch
+            launch_user = "debian-tor"
+            for u in ["debian-tor", "tor", "toranon"]:
+                if subprocess.run(["id", u], capture_output=True).returncode == 0:
+                    launch_user = u
+                    break
+            
+            subprocess.Popen(["sudo", "-u", launch_user, tor_bin, "-f", "/etc/tor/torrc", "--RunAsDaemon", "1"], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             for _ in range(20):
