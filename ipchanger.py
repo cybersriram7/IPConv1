@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Ultimate Professional Edition
-Guaranteed IP Rotation via Tor Stream Isolation & Circuit Management
+FIXED: Global System-Wide IP Rotation
 """
 
 import os
@@ -35,7 +35,6 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════
 
 class C:
-    """ANSI color codes for terminal output."""
     RST  = '\033[0m'
     BOLD = '\033[1m'
     DIM  = '\033[2m'
@@ -85,10 +84,10 @@ def print_status_table(tor_status, interval, country=None, kill_switch=False):
     print(colorize("|", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("|", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("|", C.CYAN))
     print(colorize("+-------------------------+----------------------------------------+", C.CYAN))
     
-    tor_text = colorize("Tor engine active", C.GREEN) if tor_status else colorize("Tor engine failed", C.RED)
+    tor_text = colorize("Tor Engine Active", C.GREEN) if tor_status else colorize("Tor Engine Failed", C.RED)
     print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {tor_text.ljust(39+9)} {colorize('|', C.CYAN)}")
     
-    rot_text = colorize(f"Rotation every {interval} sec", C.YELLOW)
+    rot_text = colorize(f"System-Wide every {interval}s", C.YELLOW)
     print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(39+9)} {colorize('|', C.CYAN)}")
     
     region = f"Region: {country.upper()}" if country else "Region: All (Global)"
@@ -98,7 +97,7 @@ def print_status_table(tor_status, interval, country=None, kill_switch=False):
     ks_val = colorize("ACTIVE", C.GREEN, C.BOLD) if kill_switch else colorize("DISABLED", C.GRAY)
     print(f"{colorize('|', C.CYAN)} Kill Switch             {colorize('|', C.CYAN)} {ks_val.ljust(39+9)} {colorize('|', C.CYAN)}")
     
-    print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Press CTRL+C to Shutdown', C.RED).ljust(39+9)} {colorize('|', C.CYAN)}")
+    print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Safely Restore Network', C.RED).ljust(39+9)} {colorize('|', C.CYAN)}")
     print(colorize("+-------------------------+----------------------------------------+", C.CYAN))
 
 def print_ip_change(ip, country=None):
@@ -110,7 +109,7 @@ def print_msg(prefix, msg, color):
     print(colorize(f"[{prefix}] {msg}", color))
 
 # ═══════════════════════════════════════════════════════════════════════
-# Networking & Proxy
+# Networking & Proxy (FIXED GLOBAL ROUTING)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TransparentProxy:
@@ -122,7 +121,8 @@ class TransparentProxy:
                 reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE)
                 winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
-                winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "127.0.0.1:9052")
+                # Redirect everything to the SOCKS port
+                winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, "socks=127.0.0.1:9052")
                 winreg.CloseKey(key)
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
@@ -136,23 +136,37 @@ class TransparentProxy:
                 return True
             except: return False
 
-        # Linux iptables logic
+        # Linux iptables logic - FIXED TO USE TRANSPARENT PORTS
         try:
             curr_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+            # Flush existing rules
             subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
+            subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
+            
+            # 1. Route DNS to Tor DNSPort (9053)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
+            
+            # 2. Exclude Tor processes from being looped back into Tor (Infinite loop protection)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"], capture_output=True)
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", curr_user, "-j", "RETURN"], capture_output=True)
+            
+            # 3. Exclude the current user if they are running the tool (optional, but safer to let tool talk to internet for checks)
+            # Actually, we want EVERYTHING to go through Tor, so we only exclude the Tor process itself.
+            
+            # 4. Loopback safety
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"], capture_output=True)
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"], capture_output=True)
+            
+            # 5. Route ALL remaining TCP traffic to Tor TransPort (9040)
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "-j", "REDIRECT", "--to-ports", "9040"], capture_output=True)
             
             if kill_switch:
-                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"], capture_output=True)
-                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", curr_user, "-j", "ACCEPT"], capture_output=True)
-                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"], capture_output=True)
                 subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "DROP"], capture_output=True)
+                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"], capture_output=True)
+                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"], capture_output=True)
+            
+            # Disable IPv6 to prevent leaks (standard practice for Tor transparent proxies)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"], capture_output=True)
             return True
         except: return False
 
@@ -174,15 +188,18 @@ class TransparentProxy:
         subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"], capture_output=True)
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tor Management
+# Tor Management (FIXED WITH TRANSPORTS)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TorManager:
     def __init__(self):
         self.socks_port = 9052
         self.ctrl_port = 9051
+        self.trans_port = 9040
+        self.dns_port = 9053
         self.controller = None
 
     @staticmethod
@@ -213,11 +230,23 @@ class TorManager:
         tordata = os.path.join(os.environ.get("LocalAppData", "/tmp"), "tor_ipcon")
         if not os.path.exists(tordata): os.makedirs(tordata, exist_ok=True)
 
+        # START TOR WITH TRANSPORTS ENABLED
         cmd = [
-            path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port),
-            "--CookieAuthentication", "0", "--MaxCircuitDirtiness", "5", "--NewCircuitPeriod", "5",
-            "--DataDirectory", tordata, "--RunAsDaemon", "1"
+            path, 
+            "--SocksPort", str(self.socks_port), 
+            "--ControlPort", str(self.ctrl_port),
+            "--TransPort", str(self.trans_port), 
+            "--DNSPort", str(self.dns_port),
+            "--CookieAuthentication", "0", 
+            "--MaxCircuitDirtiness", "5", 
+            "--NewCircuitPeriod", "5",
+            "--DataDirectory", tordata, 
+            "--RunAsDaemon", "1"
         ]
+        
+        if country:
+            cmd += ["--ExitNodes", f"{{{country.lower()}}}", "--StrictNodes", "1"]
+
         if is_windows():
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
@@ -225,7 +254,7 @@ class TorManager:
             subprocess.Popen(["sudo"] + cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         # Wait for bootstrap
-        for i in range(20):
+        for i in range(25):
             if self.connect(): return True
             time.sleep(1)
         return False
@@ -255,14 +284,14 @@ class TorManager:
         except: return False
 
     def get_ip(self):
-        """Fetch current IP address using requests and Tor Stream Isolation."""
+        """Fetch current IP address through the Tor proxy."""
         services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
         random.shuffle(services)
-        iso_user = f"u{random.randint(1, 99999)}"
-        iso_pass = f"p{random.randint(1, 99999)}"
+        
+        # Internal check MUST use the proxy to verify Tor is working
         proxies = {
-            'http': f'socks5h://{iso_user}:{iso_pass}@127.0.0.1:{self.socks_port}',
-            'https': f'socks5h://{iso_user}:{iso_pass}@127.0.0.1:{self.socks_port}'
+            'http': f'socks5h://127.0.0.1:{self.socks_port}',
+            'https': f'socks5h://127.0.0.1:{self.socks_port}'
         }
         for url in services:
             try:
@@ -297,11 +326,14 @@ class IPChanger:
             print_msg("X", "Elevated privileges required!", C.RED)
             return
 
+        print_msg("*", "Initializing global IP rotation...", C.CYAN)
         if not self.tor.start(self.country):
-            print_msg("X", "Could not start Tor engine.", C.RED)
+            print_msg("X", "Could not start Tor engine. Check if Tor is installed.", C.RED)
             return
 
-        TransparentProxy.enable(self.kill_switch)
+        if not TransparentProxy.enable(self.kill_switch):
+            print_msg("!", "Warning: Global routing failed. Only proxied apps will change IP.", C.YELLOW)
+
         print_status_table(True, self.interval, self.country, self.kill_switch)
         
         last_ip = None
@@ -319,7 +351,7 @@ class IPChanger:
         self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Shutting down...", C.MAGENTA)
+        print_msg("*", "Restoring network and shutting down...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
         print_msg("V", f"Done. Total rotations: {self.rotation_count}", C.GREEN)
