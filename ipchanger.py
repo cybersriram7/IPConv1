@@ -414,8 +414,14 @@ class TorManager:
 
         if is_windows():
             try:
-                # Ensure path is quoted for Windows shell
-                cmd = [path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port), "--DataDirectory", "TorData"]
+                # Launch Tor with ControlPort and Cookie Authentication enabled
+                cmd = [
+                    path, 
+                    "-SocksPort", str(self.socks_port), 
+                    "-ControlPort", str(self.ctrl_port), 
+                    "--CookieAuthentication", "1",
+                    "--DataDirectory", "TorData"
+                ]
                 flags = 0
                 if hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     flags = subprocess.CREATE_NO_WINDOW
@@ -425,6 +431,8 @@ class TorManager:
                 
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
                 print_msg("*", "Tor process launched.", C.GRAY)
+                # Brief wait for control port to open
+                time.sleep(2)
             except Exception as e:
                 print_msg("X", f"Failed to launch Tor: {e}", C.RED)
                 return False
@@ -448,11 +456,20 @@ class TorManager:
 
     def connect(self):
         if not HAS_STEM:
-            print_msg("X", "Library 'stem' is missing. Rotation will not work.", C.RED)
             return False
         try:
+            # Try connecting to the control port
             self.controller = Controller.from_port(port=self.ctrl_port)
-            self.controller.authenticate()
+            
+            # Authenticate - on Windows we point to our local DataDirectory if needed
+            if is_windows():
+                cookie_path = os.path.join(os.getcwd(), "TorData", "control_auth_cookie")
+                if os.path.exists(cookie_path):
+                    self.controller.authenticate() # Stem usually finds it if it's default
+                else:
+                    self.controller.authenticate() # Fallback
+            else:
+                self.controller.authenticate()
             return True
         except: return False
 
