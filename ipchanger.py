@@ -71,13 +71,12 @@ def clear_screen():
 def get_banner():
     if is_windows():
         return r"""
-  ██╗██████╗  ██████╗ ██████╗ ███╗   ██╗██╗   ██╗ ██╗
-  ██║██╔══██╗██╔════╝██╔═══██╗████╗  ██║██║   ██║███║
-  ██║██████╔╝██║     ██║   ██║██╔██╗ ██║██║   ██║╚██║
-  ██║██╔═══╝ ██║     ██║   ██║██║╚██╗██║╚██╗ ██╔╝ ██║
-  ██║██║     ╚██████╗╚██████╔╝██║ ╚████║ ╚████╔╝  ██║
-  ╚═╝╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝  ╚═══╝   ╚═╝
-                                VERSION: 3.0.0-WINDOWS-FIX"""
+  ___  ____   ____ ___  _   _ _   _ _ 
+ |_ _|  _ \ / ___/ _ \| \ | | | | | |
+  | || |_) | |  | | | |  \| | | | | |
+  | ||  __/| |__| |_| | |\  | |_| | |
+ |___|_|    \____\___/|_| \_|\___/|_|
+                                VERSION: 3.1.0-WINDOWS-STABLE"""
     else:
         return r"""
   ___ ____   ____ ___  _   _ __     __  _ 
@@ -282,6 +281,10 @@ class TorManager:
                 os.path.join(os.getcwd(), "tor.exe"),
                 os.path.join(os.getcwd(), "Tor", "tor.exe"),
                 
+                # AppData location (for restricted environments)
+                os.path.join(os.environ.get("LocalAppData", ""), "IPConv1", "Tor", "tor.exe"),
+                os.path.join(os.environ.get("LocalAppData", ""), "IPConv1", "tor.exe"),
+                
                 # Official Tor Expert Bundle / Service paths
                 os.path.join(prog_files, "Tor", "tor.exe"),
                 os.path.join(prog_files_x86, "Tor", "tor.exe"),
@@ -300,12 +303,15 @@ class TorManager:
                 if p and os.path.exists(p):
                     return os.path.abspath(p)
             
-            # 3. Final Fail-Safe: Recursive search in the script directory
-            try:
-                for root, dirs, files in os.walk(script_dir):
-                    if "tor.exe" in files:
-                        return os.path.abspath(os.path.join(root, "tor.exe"))
-            except: pass
+            # 3. Final Fail-Safe: Recursive search in script and AppData dirs
+            search_bases = [script_dir, os.path.join(os.environ.get("LocalAppData", ""), "IPConv1")]
+            for base in search_bases:
+                if not base or not os.path.exists(base): continue
+                try:
+                    for root, dirs, files in os.walk(base):
+                        if "tor.exe" in files:
+                            return os.path.abspath(os.path.join(root, "tor.exe"))
+                except: pass
         
         return None
 

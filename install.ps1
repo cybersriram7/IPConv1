@@ -105,9 +105,9 @@ if ($torCheck) {
 
 # Step 4: Finalize
 Write-Host ""
-Write-Host "╭──────────────────────────────────────────╮" -ForegroundColor Green
-Write-Host "│       INSTALLATION SUCCESSFUL!           │" -ForegroundColor Green
-Write-Host "╰──────────────────────────────────────────╯" -ForegroundColor Green
+Write-Host "+------------------------------------------+" -ForegroundColor Green
+Write-Host "|       INSTALLATION SUCCESSFUL!           |" -ForegroundColor Green
+Write-Host "+------------------------------------------+" -ForegroundColor Green
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor Cyan
 Write-Host "  python ipchanger.py run -s 10" -ForegroundColor White
