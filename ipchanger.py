@@ -71,12 +71,13 @@ def clear_screen():
 def get_banner():
     if is_windows():
         return r"""
-  ___  ____   ____ ___  _   _ _   _ _ 
- |_ _|  _ \ / ___/ _ \| \ | | | | | |
-  | || |_) | |  | | | |  \| | | | | |
-  | ||  __/| |__| |_| | |\  | |_| | |
- |___|_|    \____\___/|_| \_|\___/|_|
-                                VERSION: 3.1.0-WINDOWS-STABLE"""
+  ██╗██████╗  ██████╗ ██████╗ ███╗   ██╗██╗   ██╗ ██╗
+  ██║██╔══██╗██╔════╝██╔═══██╗████╗  ██║██║   ██║███║
+  ██║██████╔╝██║     ██║   ██║██╔██╗ ██║██║   ██║╚██║
+  ██║██╔═══╝ ██║     ██║   ██║██║╚██╗██║╚██╗ ██╔╝ ██║
+  ██║██║     ╚██████╗╚██████╔╝██║ ╚████║ ╚████╔╝  ██║
+  ╚═╝╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝  ╚═══╝   ╚═╝
+                                VERSION: 3.0.0-WINDOWS-FIX"""
     else:
         return r"""
   ___ ____   ____ ___  _   _ __     __  _ 
@@ -92,26 +93,26 @@ def print_banner():
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
     if is_windows():
-        border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
+        border = colorize("╭─────────────────────────┬────────────────────────────────────────╮", C.CYAN)
         print(border)
-        print(f"{colorize('|', C.CYAN)} {colorize('Service', C.WHITE, C.BOLD).ljust(23+9)} {colorize('|', C.CYAN)} {colorize('Information', C.WHITE, C.BOLD).ljust(38+9)} {colorize('|', C.CYAN)}")
-        print(border)
+        print(colorize("│", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("│", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("│", C.CYAN))
+        print(colorize("├─────────────────────────┼────────────────────────────────────────┤", C.CYAN))
         
-        status_text = colorize("Tor Active", C.GREEN, C.BOLD) if tor_status else colorize("Tor Inactive", C.RED, C.BOLD)
-        print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(38+9)} {colorize('|', C.CYAN)}")
+        status_text = colorize("Tor service active", C.GREEN, C.BOLD) if tor_status else colorize("Tor service inactive", C.RED, C.BOLD)
+        print(f"{colorize('│', C.CYAN)} Tor Status              {colorize('│', C.CYAN)} {status_text.ljust(39+9)} {colorize('│', C.CYAN)}")
         
-        rot_text = colorize(f"Rotate every {interval}s", C.YELLOW)
-        print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(38+9)} {colorize('|', C.CYAN)}")
+        rot_text = colorize(f"Auto-rotate: {interval}s", C.YELLOW)
+        print(f"{colorize('│', C.CYAN)} IP Rotation             {colorize('│', C.CYAN)} {rot_text.ljust(39+9)} {colorize('│', C.CYAN)}")
         
-        region = f"Region: {country.upper()}" if country else "Region: Global"
+        region = f"Region: {country.upper()}" if country else "Region: Global / Random"
         reg_text = colorize(region, C.CYAN)
-        print(f"{colorize('|', C.CYAN)} Target Area             {colorize('|', C.CYAN)} {reg_text.ljust(38+9)} {colorize('|', C.CYAN)}")
+        print(f"{colorize('│', C.CYAN)} Target Area             {colorize('│', C.CYAN)} {reg_text.ljust(39+9)} {colorize('│', C.CYAN)}")
         
         ks_val = colorize("ON (Protected)", C.GREEN, C.BOLD) if kill_switch else colorize("OFF (Unprotected)", C.GRAY)
-        print(f"{colorize('|', C.CYAN)} Kill Switch             {colorize('|', C.CYAN)} {ks_val.ljust(38+9)} {colorize('|', C.CYAN)}")
+        print(f"{colorize('│', C.CYAN)} Network Kill Switch     {colorize('│', C.CYAN)} {ks_val.ljust(39+9)} {colorize('│', C.CYAN)}")
         
-        print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Terminate Program', C.RED).ljust(38+9)} {colorize('|', C.CYAN)}")
-        print(border)
+        print(f"{colorize('│', C.CYAN)} CTRL+C                  {colorize('│', C.CYAN)} {colorize('Terminate Program Safely', C.RED).ljust(39+9)} {colorize('│', C.CYAN)}")
+        print(colorize("╰─────────────────────────┴────────────────────────────────────────╯", C.CYAN))
     else:
         border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
         print(border)
@@ -201,17 +202,22 @@ class TransparentProxy:
                 print_msg("X", "iptables not found!", C.RED)
                 return False
 
+            curr_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+            
             cmds = [
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"],
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"],
+                ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", curr_user, "-j", "RETURN"],
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
                 ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"],
             ]
             if kill_switch:
                 cmds += [
                     ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"],
+                    ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "ACCEPT"],
+                    ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", curr_user, "-j", "ACCEPT"],
                     ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
                     ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
                     ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
@@ -281,10 +287,6 @@ class TorManager:
                 os.path.join(os.getcwd(), "tor.exe"),
                 os.path.join(os.getcwd(), "Tor", "tor.exe"),
                 
-                # AppData location (for restricted environments)
-                os.path.join(os.environ.get("LocalAppData", ""), "IPConv1", "Tor", "tor.exe"),
-                os.path.join(os.environ.get("LocalAppData", ""), "IPConv1", "tor.exe"),
-                
                 # Official Tor Expert Bundle / Service paths
                 os.path.join(prog_files, "Tor", "tor.exe"),
                 os.path.join(prog_files_x86, "Tor", "tor.exe"),
@@ -303,15 +305,12 @@ class TorManager:
                 if p and os.path.exists(p):
                     return os.path.abspath(p)
             
-            # 3. Final Fail-Safe: Recursive search in script and AppData dirs
-            search_bases = [script_dir, os.path.join(os.environ.get("LocalAppData", ""), "IPConv1")]
-            for base in search_bases:
-                if not base or not os.path.exists(base): continue
-                try:
-                    for root, dirs, files in os.walk(base):
-                        if "tor.exe" in files:
-                            return os.path.abspath(os.path.join(root, "tor.exe"))
-                except: pass
+            # 3. Final Fail-Safe: Recursive search in the script directory
+            try:
+                for root, dirs, files in os.walk(script_dir):
+                    if "tor.exe" in files:
+                        return os.path.abspath(os.path.join(root, "tor.exe"))
+            except: pass
         
         return None
 
@@ -414,16 +413,17 @@ class TorManager:
 
         if is_windows():
             try:
-                # Define a safe path for TorData (not in system32)
+                # Use absolute paths for Windows to avoid issues when running from different locations
+                base_dir = os.path.dirname(os.path.abspath(path))
                 tordata_path = os.path.join(os.environ.get("LocalAppData", os.getcwd()), "IPConv1", "TorData")
                 if not os.path.exists(tordata_path): os.makedirs(tordata_path, exist_ok=True)
 
-                # Launch Tor with open ControlPort (no auth needed for local)
                 cmd = [
                     path, 
                     "-SocksPort", str(self.socks_port), 
                     "-ControlPort", str(self.ctrl_port), 
-                    "--HashedControlPassword", "", # Disable password requirement
+                    "--CookieAuthentication", "0",
+                    "--HashedControlPassword", "",
                     "--DataDirectory", tordata_path
                 ]
                 flags = 0
@@ -432,16 +432,28 @@ class TorManager:
                 
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
                 print_msg("*", "Tor process launched.", C.GRAY)
-                time.sleep(3) # Give it plenty of time
+                time.sleep(2)
             except Exception as e:
                 print_msg("X", f"Failed to launch Tor: {e}", C.RED)
                 return False
         else:
-            if shutil.which("systemctl"):
-                subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
-            else:
-                subprocess.Popen(["sudo", path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # We bypass systemctl and start Tor manually to ensure our custom ports
+            # and disabled authentication are respected regardless of system config.
+            cmd = [
+                "sudo", path, 
+                "--SocksPort", str(self.socks_port), 
+                "--ControlPort", str(self.ctrl_port), 
+                "--CookieAuthentication", "0",
+                "--HashedControlPassword", "",
+                "--DataDirectory", "/tmp/tor_ipcon",
+                "--RunAsDaemon", "1"
+            ]
+            if not os.path.exists("/tmp/tor_ipcon"):
+                os.makedirs("/tmp/tor_ipcon", exist_ok=True)
+                subprocess.run(["sudo", "chown", "-R", "debian-tor:debian-tor", "/tmp/tor_ipcon"], capture_output=True)
+            
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print_msg("*", "Tor manual startup initiated.", C.GRAY)
         
         # Wait for bootstrap
         for i in range(25):
@@ -457,32 +469,47 @@ class TorManager:
     def connect(self):
         if not HAS_STEM:
             return False
-        try:
-            # Try connecting to the control port
-            self.controller = Controller.from_port(port=self.ctrl_port)
-            self.controller.authenticate() # Now works without password/cookie
-            return True
-        except: return False
+        # Try multiple times to connect as Tor might still be bootstrapping
+        for _ in range(5):
+            try:
+                self.controller = Controller.from_port(port=self.ctrl_port)
+                # Authenticate with empty password (works when CookieAuthentication is 0)
+                self.controller.authenticate(password="")
+                return True
+            except:
+                time.sleep(1)
+        return False
 
     def rotate(self):
         if not HAS_STEM: return False
         try:
             if not self.controller or not self.controller.is_alive():
                 if not self.connect(): return False
+            
             self.controller.signal(Signal.NEWNYM)
+            # Give Tor a moment to acknowledge the signal
+            time.sleep(1)
             return True
-        except: return False
+        except Exception as e:
+            # If it fails, try to reconnect once
+            try:
+                if self.connect():
+                    self.controller.signal(Signal.NEWNYM)
+                    return True
+            except: pass
+            return False
 
     def get_ip(self):
         """Fetch current IP address using Tor proxy if available."""
         services = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]
         
-        # Try to use SOCKS5 proxy via PySocks if available
+        # Configure global SOCKS proxy for this request
         try:
             import socks, socket
             socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port)
             socket.socket = socks.socksocket
-        except: pass
+        except ImportError:
+            pass
 
         for url in services:
             try:
@@ -572,7 +599,7 @@ class IPChanger:
 def main():
     try:
         parser = argparse.ArgumentParser(description="IP Changer - Professional IP Rotation Tool")
-        parser.add_argument("-s", "--seconds", type=int, default=5, help="Interval in seconds (default: 5)")
+        parser.add_argument("-s", "--seconds", type=int, default=10, help="Interval in seconds")
         parser.add_argument("-c", "--country", type=str, help="Specific country code (e.g. us, de)")
         parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable network kill switch")
         parser.add_argument("--check", action="store_true", help="Run system diagnostics")

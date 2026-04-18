@@ -45,7 +45,10 @@ echo -e "${CYAN}[*] Configuring Tor...${NC}"
 TORRC="/etc/tor/torrc"
 if [ -f "$TORRC" ]; then
     if ! grep -q "ControlPort 9051" "$TORRC"; then
-        echo -e "\nControlPort 9051\nCookieAuthentication 1" >> "$TORRC"
+        echo -e "\nControlPort 9051\nCookieAuthentication 0" >> "$TORRC"
+    else
+        # Update existing config if it has CookieAuthentication 1
+        sed -i 's/CookieAuthentication 1/CookieAuthentication 0/g' "$TORRC"
     fi
 fi
 
