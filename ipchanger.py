@@ -92,26 +92,26 @@ def print_banner():
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
     if is_windows():
-        border = colorize("╭─────────────────────────┬────────────────────────────────────────╮", C.CYAN)
+        border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
         print(border)
-        print(colorize("│", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("│", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("│", C.CYAN))
-        print(colorize("├─────────────────────────┼────────────────────────────────────────┤", C.CYAN))
+        print(f"{colorize('|', C.CYAN)} {colorize('Service', C.WHITE, C.BOLD).ljust(23+9)} {colorize('|', C.CYAN)} {colorize('Information', C.WHITE, C.BOLD).ljust(38+9)} {colorize('|', C.CYAN)}")
+        print(border)
         
-        status_text = colorize("Tor service active", C.GREEN, C.BOLD) if tor_status else colorize("Tor service inactive", C.RED, C.BOLD)
-        print(f"{colorize('│', C.CYAN)} Tor Status              {colorize('│', C.CYAN)} {status_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        status_text = colorize("Tor Active", C.GREEN, C.BOLD) if tor_status else colorize("Tor Inactive", C.RED, C.BOLD)
+        print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(38+9)} {colorize('|', C.CYAN)}")
         
-        rot_text = colorize(f"Auto-rotate: {interval}s", C.YELLOW)
-        print(f"{colorize('│', C.CYAN)} IP Rotation             {colorize('│', C.CYAN)} {rot_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        rot_text = colorize(f"Rotate every {interval}s", C.YELLOW)
+        print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(38+9)} {colorize('|', C.CYAN)}")
         
-        region = f"Region: {country.upper()}" if country else "Region: Global / Random"
+        region = f"Region: {country.upper()}" if country else "Region: Global"
         reg_text = colorize(region, C.CYAN)
-        print(f"{colorize('│', C.CYAN)} Target Area             {colorize('│', C.CYAN)} {reg_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        print(f"{colorize('|', C.CYAN)} Target Area             {colorize('|', C.CYAN)} {reg_text.ljust(38+9)} {colorize('|', C.CYAN)}")
         
         ks_val = colorize("ON (Protected)", C.GREEN, C.BOLD) if kill_switch else colorize("OFF (Unprotected)", C.GRAY)
-        print(f"{colorize('│', C.CYAN)} Network Kill Switch     {colorize('│', C.CYAN)} {ks_val.ljust(39+9)} {colorize('│', C.CYAN)}")
+        print(f"{colorize('|', C.CYAN)} Kill Switch             {colorize('|', C.CYAN)} {ks_val.ljust(38+9)} {colorize('|', C.CYAN)}")
         
-        print(f"{colorize('│', C.CYAN)} CTRL+C                  {colorize('│', C.CYAN)} {colorize('Terminate Program Safely', C.RED).ljust(39+9)} {colorize('│', C.CYAN)}")
-        print(colorize("╰─────────────────────────┴────────────────────────────────────────╯", C.CYAN))
+        print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Terminate Program', C.RED).ljust(38+9)} {colorize('|', C.CYAN)}")
+        print(border)
     else:
         border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
         print(border)
@@ -466,12 +466,20 @@ class TorManager:
         except: return False
 
     def get_ip(self):
-        # Use multiple services for high reliability
+        """Fetch current IP address using Tor proxy if available."""
         services = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]
+        
+        # Try to use SOCKS5 proxy via PySocks if available
+        try:
+            import socks, socket
+            socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port)
+            socket.socket = socks.socksocket
+        except: pass
+
         for url in services:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=8) as res:
+                with urllib.request.urlopen(req, timeout=10) as res:
                     return res.read().decode().strip()
             except: continue
         return None
@@ -556,7 +564,7 @@ class IPChanger:
 def main():
     try:
         parser = argparse.ArgumentParser(description="IP Changer - Professional IP Rotation Tool")
-        parser.add_argument("-s", "--seconds", type=int, default=10, help="Interval in seconds")
+        parser.add_argument("-s", "--seconds", type=int, default=5, help="Interval in seconds (default: 5)")
         parser.add_argument("-c", "--country", type=str, help="Specific country code (e.g. us, de)")
         parser.add_argument("-k", "--kill-switch", action="store_true", help="Enable network kill switch")
         parser.add_argument("--check", action="store_true", help="Run system diagnostics")

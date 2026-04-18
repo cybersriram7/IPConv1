@@ -11,13 +11,9 @@ function Test-IsAdmin {
 
 Clear-Host
 
-Write-Host "  ██████╗██████╗  ██████╗ ██████╗ ███╗   ██╗██╗   ██╗ ██╗" -ForegroundColor Cyan
-Write-Host "  ╚══██╔╝██╔══██╗██╔════╝██╔═══██╗████╗  ██║██║   ██║███║" -ForegroundColor Cyan
-Write-Host "     ██║ ██████╔╝██║     ██║   ██║██╔██╗ ██║██║   ██║╚██║" -ForegroundColor Cyan
-Write-Host "     ██║ ██╔═══╝ ██║     ██║   ██║██║╚██╗██║╚██╗ ██╔╝ ██║" -ForegroundColor Cyan
-Write-Host "     ██║ ██║     ╚██████╗╚██████╔╝██║ ╚████║ ╚████╔╝  ██║" -ForegroundColor Cyan
-Write-Host "     ╚═╝ ╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝  ╚═══╝   ╚═╝" -ForegroundColor Cyan
-Write-Host "                           WINDOWS SETUP MODULE" -ForegroundColor Cyan
+Write-Host "--------------------------------------------" -ForegroundColor Cyan
+Write-Host "      IP Changer - Windows Setup Module     " -ForegroundColor Cyan
+Write-Host "--------------------------------------------" -ForegroundColor Cyan
 Write-Host ""
 
 # Step 0: Check for Administrator Privileges
@@ -110,7 +106,7 @@ Write-Host "|       INSTALLATION SUCCESSFUL!           |" -ForegroundColor Green
 Write-Host "+------------------------------------------+" -ForegroundColor Green
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor Cyan
-Write-Host "  python ipchanger.py run -s 10" -ForegroundColor White
+Write-Host "  python ipchanger.py -s 5" -ForegroundColor White
 Write-Host ""
 Write-Host "SYSTEM NOTE: Always run as Administrator for full feature support." -ForegroundColor Yellow
 Write-Host ""
