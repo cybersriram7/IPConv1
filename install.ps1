@@ -1,4 +1,4 @@
-# IPConv1 - Windows Installation Script
+# IPConv1 - Windows Premium Installation Script
 # Professional Tor-Based IP Rotation System
 
 $ErrorActionPreference = "Stop"
@@ -11,56 +11,60 @@ function Test-IsAdmin {
 
 Clear-Host
 
-Write-Host "+------------------------------------------+" -ForegroundColor Cyan
-Write-Host "|      IP Changer - Windows Setup          |" -ForegroundColor Cyan
-Write-Host "+------------------------------------------+" -ForegroundColor Cyan
+Write-Host "  ██████╗██████╗  ██████╗ ██████╗ ███╗   ██╗██╗   ██╗ ██╗" -ForegroundColor Cyan
+Write-Host "  ╚══██╔╝██╔══██╗██╔════╝██╔═══██╗████╗  ██║██║   ██║███║" -ForegroundColor Cyan
+Write-Host "     ██║ ██████╔╝██║     ██║   ██║██╔██╗ ██║██║   ██║╚██║" -ForegroundColor Cyan
+Write-Host "     ██║ ██╔═══╝ ██║     ██║   ██║██║╚██╗██║╚██╗ ██╔╝ ██║" -ForegroundColor Cyan
+Write-Host "     ██║ ██║     ╚██████╗╚██████╔╝██║ ╚████║ ╚████╔╝  ██║" -ForegroundColor Cyan
+Write-Host "     ╚═╝ ╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝  ╚═══╝   ╚═╝" -ForegroundColor Cyan
+Write-Host "                           WINDOWS SETUP MODULE" -ForegroundColor Cyan
 Write-Host ""
 
 # Step 0: Check for Administrator Privileges
-Write-Host "[*] Checking for Administrator privileges..." -ForegroundColor Cyan
+Write-Host "[*] Verifying Administrator access..." -ForegroundColor Cyan
 if (-not (Test-IsAdmin)) {
-    Write-Host "[X] This installer requires Administrator privileges." -ForegroundColor Red
-    Write-Host "[!] Please Relaunch PowerShell as Administrator." -ForegroundColor Yellow
+    Write-Host "[X] ERROR: Access Denied. Administrator privileges required." -ForegroundColor Red
+    Write-Host "[!] Action: Please Relaunch PowerShell as Administrator." -ForegroundColor Yellow
     exit 1
 }
-Write-Host "[V] Running as Administrator" -ForegroundColor Green
+Write-Host "[V] Privileges confirmed." -ForegroundColor Green
 Write-Host ""
 
 # Step 1: Check Python
-Write-Host "[*] Checking Python installation..." -ForegroundColor Cyan
+Write-Host "[*] Analyzing Python environment..." -ForegroundColor Cyan
 try {
     $pythonVersion = python --version 2>&1
-    Write-Host "[V] Found $pythonVersion" -ForegroundColor Green
+    Write-Host "[V] Environment Ready: $pythonVersion" -ForegroundColor Green
 } catch {
-    Write-Host "[X] Python not found! Please install Python from https://python.org" -ForegroundColor Red
+    Write-Host "[X] FATAL: Python not detected. Download from https://python.org" -ForegroundColor Red
     exit 1
 }
 
 # Step 2: Install Dependencies
-Write-Host "[*] Installing Python dependencies..." -ForegroundColor Cyan
+Write-Host "[*] Deploying professional dependencies..." -ForegroundColor Cyan
 try {
-    python -m pip install --upgrade pip
-    python -m pip install stem PySocks requests pyyaml
-    Write-Host "[V] Python dependencies installed." -ForegroundColor Green
+    python -m pip install --upgrade pip --quiet
+    python -m pip install stem PySocks requests pyyaml --quiet
+    Write-Host "[V] Libraries deployed successfully." -ForegroundColor Green
 } catch {
-    Write-Host "[!] Pip install failed. Trying with --user..." -ForegroundColor Yellow
+    Write-Host "[!] Standard install failed. Attempting user-space deployment..." -ForegroundColor Yellow
     try {
-        python -m pip install --user stem PySocks requests pyyaml
-        Write-Host "[V] Python dependencies installed." -ForegroundColor Green
+        python -m pip install --user stem PySocks requests pyyaml --quiet
+        Write-Host "[V] Libraries deployed in user-space." -ForegroundColor Green
     } catch {
-        Write-Host "[X] Failed to install dependencies. Please run: pip install stem PySocks requests pyyaml" -ForegroundColor Red
+        Write-Host "[X] Critical Error: Failed to install libraries." -ForegroundColor Red
     }
 }
 
 # Step 3: Check Tor
-Write-Host "[*] Checking for Tor..." -ForegroundColor Cyan
+Write-Host "[*] Scanning for Tor service..." -ForegroundColor Cyan
 $torCheck = Get-Command tor -ErrorAction SilentlyContinue
 
 if ($torCheck) {
-    Write-Host "[V] Tor is installed and in PATH." -ForegroundColor Green
+    Write-Host "[V] Tor service discovered in system PATH." -ForegroundColor Green
 } else {
-    Write-Host "[!] Tor not found in PATH." -ForegroundColor Yellow
-    Write-Host "[*] Checking common installation paths..." -ForegroundColor Cyan
+    Write-Host "[!] Tor service not found in PATH." -ForegroundColor Yellow
+    Write-Host "[*] Searching secondary locations..." -ForegroundColor Cyan
     
     $commonPaths = @(
         "$env:ProgramFiles\Tor\tor.exe",
@@ -76,40 +80,37 @@ if ($torCheck) {
     $foundTor = $false
     foreach ($path in $commonPaths) {
         if (Test-Path $path) {
-            Write-Host "[V] Found Tor at: $path" -ForegroundColor Green
-            Write-Host "[!] Note: To run 'tor' from anywhere, add this path to your Environment Variables." -ForegroundColor Yellow
+            Write-Host "[V] Tor located at: $path" -ForegroundColor Green
             $foundTor = $true
             break
         }
     }
     
     if (-not $foundTor) {
-        Write-Host "[!] Tor not found in common locations. Attempting to install via winget..." -ForegroundColor Cyan
+        Write-Host "[*] Initiating automated Tor installation via winget..." -ForegroundColor Cyan
         $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
         if ($wingetCheck) {
             try {
                 winget install TorProject.Tor --accept-source-agreements --accept-package-agreements
-                Write-Host "[V] Tor installation initiated via winget!" -ForegroundColor Green
-                Write-Host "[!] Please RESTART your terminal after setup to update PATH." -ForegroundColor Yellow
+                Write-Host "[V] Tor installation successful!" -ForegroundColor Green
+                Write-Host "[!] ACTION: Please RESTART your terminal to finalize setup." -ForegroundColor Yellow
             } catch {
                 Write-Host "[X] Winget failed to install Tor." -ForegroundColor Red
-                Write-Host "[*] Please download it manually: https://www.torproject.org/download/tor/" -ForegroundColor Cyan
             }
         } else {
-            Write-Host "[X] winget not found. Please install Tor manually." -ForegroundColor Red
+            Write-Host "[X] Winget not available. Automated setup failed." -ForegroundColor Red
         }
     }
 }
 
 # Step 4: Finalize
 Write-Host ""
-Write-Host "+------------------------------------------+" -ForegroundColor Green
-Write-Host "|     Installation Complete!               |" -ForegroundColor Green
-Write-Host "+------------------------------------------+" -ForegroundColor Green
+Write-Host "╭──────────────────────────────────────────╮" -ForegroundColor Green
+Write-Host "│       INSTALLATION SUCCESSFUL!           │" -ForegroundColor Green
+Write-Host "╰──────────────────────────────────────────╯" -ForegroundColor Green
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor Cyan
 Write-Host "  python ipchanger.py run -s 10" -ForegroundColor White
 Write-Host ""
-Write-Host "NOTE: The Windows version supports System-wide Proxy and Kill Switch." -ForegroundColor Green
-Write-Host "Remember to always run your terminal as Administrator for full features." -ForegroundColor Yellow
+Write-Host "SYSTEM NOTE: Always run as Administrator for full feature support." -ForegroundColor Yellow
 Write-Host ""

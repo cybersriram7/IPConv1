@@ -68,7 +68,18 @@ def clear_screen():
 # Banner & UI
 # -----------------------------------------------------------------------
 
-BANNER = r"""
+def get_banner():
+    if is_windows():
+        return r"""
+  ██╗██████╗  ██████╗ ██████╗ ███╗   ██╗██╗   ██╗ ██╗
+  ██║██╔══██╗██╔════╝██╔═══██╗████╗  ██║██║   ██║███║
+  ██║██████╔╝██║     ██║   ██║██╔██╗ ██║██║   ██║╚██║
+  ██║██╔═══╝ ██║     ██║   ██║██║╚██╗██║╚██╗ ██╔╝ ██║
+  ██║██║     ╚██████╗╚██████╔╝██║ ╚████║ ╚████╔╝  ██║
+  ╚═╝╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝  ╚═══╝   ╚═╝
+                                VERSION: 3.0.0-WINDOWS-FIX"""
+    else:
+        return r"""
   ___ ____   ____ ___  _   _ __     __  _ 
  |_ _|  _ \ / ___/ _ \| \ | |\ \   / / / |
   | || |_) | |  | | | |  \| | \ \ / /  | |
@@ -77,30 +88,52 @@ BANNER = r"""
                                 VERSION: 2.5.0-ULTIMATE"""
 
 def print_banner():
-    print(colorize(BANNER, C.CYAN, C.BOLD))
+    print(colorize(get_banner(), C.CYAN, C.BOLD))
     print(colorize("                                          [ DEVELOPED BY SRIRAM ]", C.MAGENTA, C.BOLD))
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
-    border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
-    print(border)
-    print(colorize("|", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("|", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("|", C.CYAN))
-    print(border)
-    
-    status_text = colorize("Tor service started", C.GREEN) if tor_status else colorize("Tor service failed", C.RED)
-    print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(39+9)} {colorize('|', C.CYAN)}")
-    
-    rot_text = colorize(f"IP change every {interval} sec", C.YELLOW)
-    print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(39+9)} {colorize('|', C.CYAN)}")
-    
-    region = f"Region: {country.upper()}" if country else "Region: All (Global)"
-    reg_text = colorize(region, C.CYAN)
-    print(f"{colorize('|', C.CYAN)} Target Region           {colorize('|', C.CYAN)} {reg_text.ljust(39+9)} {colorize('|', C.CYAN)}")
-    
-    ks_val = colorize("ACTIVE", C.GREEN, C.BOLD) if kill_switch else colorize("DISABLED", C.GRAY)
-    print(f"{colorize('|', C.CYAN)} Network Kill Switch     {colorize('|', C.CYAN)} {ks_val.ljust(39+9)} {colorize('|', C.CYAN)}")
-    
-    print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Press CTRL+C to Terminate', C.RED).ljust(39+9)} {colorize('|', C.CYAN)}")
-    print(border)
+    if is_windows():
+        border = colorize("╭─────────────────────────┬────────────────────────────────────────╮", C.CYAN)
+        print(border)
+        print(colorize("│", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("│", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("│", C.CYAN))
+        print(colorize("├─────────────────────────┼────────────────────────────────────────┤", C.CYAN))
+        
+        status_text = colorize("Tor service active", C.GREEN, C.BOLD) if tor_status else colorize("Tor service inactive", C.RED, C.BOLD)
+        print(f"{colorize('│', C.CYAN)} Tor Status              {colorize('│', C.CYAN)} {status_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        
+        rot_text = colorize(f"Auto-rotate: {interval}s", C.YELLOW)
+        print(f"{colorize('│', C.CYAN)} IP Rotation             {colorize('│', C.CYAN)} {rot_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        
+        region = f"Region: {country.upper()}" if country else "Region: Global / Random"
+        reg_text = colorize(region, C.CYAN)
+        print(f"{colorize('│', C.CYAN)} Target Area             {colorize('│', C.CYAN)} {reg_text.ljust(39+9)} {colorize('│', C.CYAN)}")
+        
+        ks_val = colorize("ON (Protected)", C.GREEN, C.BOLD) if kill_switch else colorize("OFF (Unprotected)", C.GRAY)
+        print(f"{colorize('│', C.CYAN)} Network Kill Switch     {colorize('│', C.CYAN)} {ks_val.ljust(39+9)} {colorize('│', C.CYAN)}")
+        
+        print(f"{colorize('│', C.CYAN)} CTRL+C                  {colorize('│', C.CYAN)} {colorize('Terminate Program Safely', C.RED).ljust(39+9)} {colorize('│', C.CYAN)}")
+        print(colorize("╰─────────────────────────┴────────────────────────────────────────╯", C.CYAN))
+    else:
+        border = colorize("+-------------------------+----------------------------------------+", C.CYAN)
+        print(border)
+        print(colorize("|", C.CYAN) + colorize(" Service                 ", C.WHITE, C.BOLD) + colorize("|", C.CYAN) + colorize(" Information                            ", C.WHITE, C.BOLD) + colorize("|", C.CYAN))
+        print(border)
+        
+        status_text = colorize("Tor service started", C.GREEN) if tor_status else colorize("Tor service failed", C.RED)
+        print(f"{colorize('|', C.CYAN)} Tor Status              {colorize('|', C.CYAN)} {status_text.ljust(39+9)} {colorize('|', C.CYAN)}")
+        
+        rot_text = colorize(f"IP change every {interval} sec", C.YELLOW)
+        print(f"{colorize('|', C.CYAN)} IP Rotation             {colorize('|', C.CYAN)} {rot_text.ljust(39+9)} {colorize('|', C.CYAN)}")
+        
+        region = f"Region: {country.upper()}" if country else "Region: All (Global)"
+        reg_text = colorize(region, C.CYAN)
+        print(f"{colorize('|', C.CYAN)} Target Region           {colorize('|', C.CYAN)} {reg_text.ljust(39+9)} {colorize('|', C.CYAN)}")
+        
+        ks_val = colorize("ACTIVE", C.GREEN, C.BOLD) if kill_switch else colorize("DISABLED", C.GRAY)
+        print(f"{colorize('|', C.CYAN)} Network Kill Switch     {colorize('|', C.CYAN)} {ks_val.ljust(39+9)} {colorize('|', C.CYAN)}")
+        
+        print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Press CTRL+C to Terminate', C.RED).ljust(39+9)} {colorize('|', C.CYAN)}")
+        print(border)
 
 def print_ip_change(ip, country=None):
     now = datetime.now().strftime("%I:%M:%S %p")
@@ -277,13 +310,41 @@ class TorManager:
         return None
 
     @staticmethod
+    def get_latest_tor_url():
+        """Scrape the Tor distribution server for the latest expert bundle URL."""
+        base_url = "https://dist.torproject.org/torbrowser/"
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(base_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content = response.read().decode()
+                # Find version folders (e.g., 15.0.9/)
+                import re
+                versions = re.findall(r'(\d+\.\d+\.\d+)/', content)
+                if not versions:
+                    return None
+                
+                # Sort versions and get latest
+                def version_key(v): return [int(x) for x in v.split('.')]
+                latest_v = sorted(versions, key=version_key, reverse=True)[0]
+                
+                # Construct the full download URL
+                return f"{base_url}{latest_v}/tor-expert-bundle-windows-x86_64-{latest_v}.tar.gz"
+        except Exception as e:
+            print_msg("!", f"Failed to detect latest version: {e}", C.YELLOW)
+            # Fallback to a relatively recent known version
+            return "https://dist.torproject.org/torbrowser/15.0.9/tor-expert-bundle-windows-x86_64-15.0.9.tar.gz"
+
+    @staticmethod
     def auto_install_tor():
         """Automatically download and install Tor Expert Bundle on Windows."""
         if not is_windows(): return False
         
         print_msg("*", "Tor not found. Attempting automatic installation...", C.CYAN)
-        # Using a stable version of Tor Expert Bundle
-        url = "https://dist.torproject.org/torbrowser/14.0.1/tor-expert-bundle-windows-x86_64-14.0.1.tar.gz"
+        url = TorManager.get_latest_tor_url()
+        if not url:
+            print_msg("X", "Could not determine Tor download URL.", C.RED)
+            return False
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
         # Safety check: Avoid installing inside system32
@@ -312,7 +373,7 @@ class TorManager:
                 os.remove(tar_path)
             
             # Verify extraction
-            new_path = self._get_tor_path()
+            new_path = TorManager._get_tor_path()
             if new_path:
                 print_msg("V", f"Tor installed and verified at: {new_path}", C.GREEN)
                 return True
@@ -435,8 +496,19 @@ class IPChanger:
             print_msg("*", "Checking dependencies...", C.CYAN)
             
             if not HAS_STEM:
-                print_msg("!", "Python library 'stem' is missing. IP rotation will be disabled.", C.YELLOW)
-                print_msg("*", "To fix, run: pip install stem", C.GRAY)
+                print_msg("!", "Python library 'stem' is missing. Rotation will not work.", C.YELLOW)
+                choice = input(colorize("[?] Would you like to install it now? (y/n): ", C.WHITE, C.BOLD)).lower()
+                if choice == 'y':
+                    print_msg("*", "Installing 'stem'...", C.GRAY)
+                    try:
+                        subprocess.run([sys.executable, "-m", "pip", "install", "stem"], check=True)
+                        print_msg("V", "Library 'stem' installed successfully! Please restart the tool.", C.GREEN)
+                        return
+                    except:
+                        print_msg("X", "Failed to install 'stem'. Please run: pip install stem", C.RED)
+                        return
+                else:
+                    print_msg("!", "Rotation disabled due to missing 'stem'.", C.YELLOW)
 
             if not self.tor.start(self.country):
                 print_msg("X", "FATAL: Tor service could not be initialized.", C.RED)
