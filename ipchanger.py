@@ -444,9 +444,9 @@ class TorManager:
                 "--SocksPort", str(self.socks_port), 
                 "--ControlPort", str(self.ctrl_port), 
                 "--CookieAuthentication", "0",
-                "--MaxCircuitDirtiness", "10",
-                "--NewCircuitPeriod", "10",
-                "--CircuitBuildTimeout", "10",
+                "--MaxCircuitDirtiness", "5",
+                "--NewCircuitPeriod", "5",
+                "--CircuitBuildTimeout", "5",
                 "--DataDirectory", "/tmp/tor_ipcon",
                 "--RunAsDaemon", "1"
             ]
@@ -490,14 +490,18 @@ class TorManager:
             if not self.controller or not self.controller.is_alive():
                 if not self.connect(): return False
             
-            # Send NEWNYM signal
-            self.controller.signal(Signal.NEWNYM)
+            # 1. Try standard NEWNYM signal
+            try:
+                self.controller.signal(Signal.NEWNYM)
+            except Exception as e:
+                # 2. If rate-limited (451), force close circuits to trigger new ones
+                if "451" in str(e) or "Rate limited" in str(e):
+                    for circ in self.controller.get_circuits():
+                        try: self.controller.close_circuit(circ.id)
+                        except: pass
+                else: raise e
             return True
-        except Exception as e:
-            # Suppress "Rate limited" errors as they are expected at < 10s intervals
-            if "Rate limited" in str(e):
-                return True
-            # For other errors, try to reconnect once
+        except Exception:
             try:
                 if self.connect():
                     self.controller.signal(Signal.NEWNYM)
@@ -506,21 +510,20 @@ class TorManager:
             return False
 
     def get_ip(self):
-        """Fetch current IP address using Tor proxy if available."""
-        services = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]
+        """Fetch current IP address using Tor proxy with fast timeout."""
+        services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
         
-        # Configure global SOCKS proxy for this request
         try:
             import socks, socket
             socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port)
             socket.socket = socks.socksocket
-        except ImportError:
-            pass
+        except: pass
 
         for url in services:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as res:
+                # Shorter timeout for faster 5s rotation
+                with urllib.request.urlopen(req, timeout=5) as res:
                     return res.read().decode().strip()
             except: continue
         return None
