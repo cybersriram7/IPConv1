@@ -15,6 +15,7 @@ import threading
 import socket
 import json
 import urllib.request
+import requests
 import platform
 import random
 from datetime import datetime
@@ -511,28 +512,28 @@ class TorManager:
             return False
 
     def get_ip(self):
-        """Fetch current IP address using Tor proxy with Stream Isolation."""
+        """Fetch current IP address using requests and Tor Stream Isolation."""
         services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
         random.shuffle(services)
         
         # Use Stream Isolation: Providing unique SOCKS credentials forces Tor 
         # to use a new circuit for this specific connection.
-        iso_user = f"user_{random.randint(1, 100000)}"
-        iso_pass = f"pass_{random.randint(1, 100000)}"
+        iso_user = f"u{random.randint(1, 100000)}"
+        iso_pass = f"p{random.randint(1, 100000)}"
         
-        try:
-            import socks, socket
-            socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port, True, iso_user, iso_pass)
-            socket.socket = socks.socksocket
-        except: pass
+        proxies = {
+            'http': f'socks5h://{iso_user}:{iso_pass}@127.0.0.1:{self.socks_port}',
+            'https': f'socks5h://{iso_user}:{iso_pass}@127.0.0.1:{self.socks_port}'
+        }
 
         for url in services:
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                # Shorter timeout for faster 5s rotation
-                with urllib.request.urlopen(req, timeout=5) as res:
-                    return res.read().decode().strip()
-            except: continue
+                # Use requests for better proxy handling and guaranteed isolation
+                response = requests.get(url, proxies=proxies, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+                if response.status_code == 200:
+                    return response.text.strip()
+            except Exception:
+                continue
         return None
 
     def get_country(self, ip):
