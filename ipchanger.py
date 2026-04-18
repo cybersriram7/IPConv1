@@ -73,7 +73,8 @@ BANNER = r"""
 ██║██████╔╝██║     ██║   ██║    ██║   ██║╚██║
 ██║██╔═══╝ ██║     ██║   ██║    ╚██╗ ██╔╝ ██║
 ██║██║     ╚██████╗╚██████╔╝     ╚████╔╝  ██║
-╚═╝╚═╝      ╚═════╝ ╚═════╝      ╚═══╝    ╚═╝"""
+╚═╝╚═╝      ╚═════╝ ╚═════╝      ╚═══╝    ╚═╝
+                                [ IPV4 ONLY EDITION ]"""
 
 def print_banner():
     print(colorize(BANNER, C.CYAN, C.BOLD))
@@ -147,8 +148,12 @@ class TransparentProxy:
             subprocess.run(["sudo", "ip6tables", "-P", "INPUT", "DROP"], capture_output=True)
             subprocess.run(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"], capture_output=True)
             subprocess.run(["sudo", "ip6tables", "-P", "FORWARD", "DROP"], capture_output=True)
+            subprocess.run(["sudo", "ip6tables", "-F"], capture_output=True)
+            
+            # Disable IPv6 via sysctl (Aggressive)
             subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"], capture_output=True)
             subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=1"], capture_output=True)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.lo.disable_ipv6=1"], capture_output=True)
 
             # 2. Route DNS to Tor DNSPort (9053)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
