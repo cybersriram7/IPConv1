@@ -414,25 +414,25 @@ class TorManager:
 
         if is_windows():
             try:
-                # Launch Tor with ControlPort and Cookie Authentication enabled
+                # Define a safe path for TorData (not in system32)
+                tordata_path = os.path.join(os.environ.get("LocalAppData", os.getcwd()), "IPConv1", "TorData")
+                if not os.path.exists(tordata_path): os.makedirs(tordata_path, exist_ok=True)
+
+                # Launch Tor with open ControlPort (no auth needed for local)
                 cmd = [
                     path, 
                     "-SocksPort", str(self.socks_port), 
                     "-ControlPort", str(self.ctrl_port), 
-                    "--CookieAuthentication", "1",
-                    "--DataDirectory", "TorData"
+                    "--HashedControlPassword", "", # Disable password requirement
+                    "--DataDirectory", tordata_path
                 ]
                 flags = 0
                 if hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     flags = subprocess.CREATE_NO_WINDOW
                 
-                # Create data directory if it doesn't exist
-                if not os.path.exists("TorData"): os.makedirs("TorData")
-                
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
                 print_msg("*", "Tor process launched.", C.GRAY)
-                # Brief wait for control port to open
-                time.sleep(2)
+                time.sleep(3) # Give it plenty of time
             except Exception as e:
                 print_msg("X", f"Failed to launch Tor: {e}", C.RED)
                 return False
@@ -460,16 +460,7 @@ class TorManager:
         try:
             # Try connecting to the control port
             self.controller = Controller.from_port(port=self.ctrl_port)
-            
-            # Authenticate - on Windows we point to our local DataDirectory if needed
-            if is_windows():
-                cookie_path = os.path.join(os.getcwd(), "TorData", "control_auth_cookie")
-                if os.path.exists(cookie_path):
-                    self.controller.authenticate() # Stem usually finds it if it's default
-                else:
-                    self.controller.authenticate() # Fallback
-            else:
-                self.controller.authenticate()
+            self.controller.authenticate() # Now works without password/cookie
             return True
         except: return False
 
