@@ -16,6 +16,7 @@ import socket
 import json
 import urllib.request
 import platform
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -510,12 +511,18 @@ class TorManager:
             return False
 
     def get_ip(self):
-        """Fetch current IP address using Tor proxy with fast timeout."""
+        """Fetch current IP address using Tor proxy with Stream Isolation."""
         services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
+        random.shuffle(services)
+        
+        # Use Stream Isolation: Providing unique SOCKS credentials forces Tor 
+        # to use a new circuit for this specific connection.
+        iso_user = f"user_{random.randint(1, 100000)}"
+        iso_pass = f"pass_{random.randint(1, 100000)}"
         
         try:
             import socks, socket
-            socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port)
+            socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", self.socks_port, True, iso_user, iso_pass)
             socket.socket = socks.socksocket
         except: pass
 
