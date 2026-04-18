@@ -444,16 +444,20 @@ class TorManager:
                 "--SocksPort", str(self.socks_port), 
                 "--ControlPort", str(self.ctrl_port), 
                 "--CookieAuthentication", "0",
-                "--HashedControlPassword", "",
+                "--MaxCircuitDirtiness", "10",
+                "--NewCircuitPeriod", "10",
+                "--CircuitBuildTimeout", "10",
                 "--DataDirectory", "/tmp/tor_ipcon",
                 "--RunAsDaemon", "1"
             ]
             if not os.path.exists("/tmp/tor_ipcon"):
                 os.makedirs("/tmp/tor_ipcon", exist_ok=True)
+                # Try to chown to debian-tor, but don't fail if the user doesn't exist
                 subprocess.run(["sudo", "chown", "-R", "debian-tor:debian-tor", "/tmp/tor_ipcon"], capture_output=True)
+                subprocess.run(["sudo", "chmod", "-R", "700", "/tmp/tor_ipcon"], capture_output=True)
             
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print_msg("*", "Tor manual startup initiated.", C.GRAY)
+            print_msg("*", "Tor engine started with aggressive rotation (10s).", C.GRAY)
         
         # Wait for bootstrap
         for i in range(25):
@@ -473,10 +477,10 @@ class TorManager:
         for _ in range(5):
             try:
                 self.controller = Controller.from_port(port=self.ctrl_port)
-                # Authenticate with empty password (works when CookieAuthentication is 0)
+                # Authenticate with empty password
                 self.controller.authenticate(password="")
                 return True
-            except:
+            except Exception:
                 time.sleep(1)
         return False
 
@@ -486,12 +490,14 @@ class TorManager:
             if not self.controller or not self.controller.is_alive():
                 if not self.connect(): return False
             
+            # Send NEWNYM signal
             self.controller.signal(Signal.NEWNYM)
-            # Give Tor a moment to acknowledge the signal
-            time.sleep(1)
             return True
         except Exception as e:
-            # If it fails, try to reconnect once
+            # Suppress "Rate limited" errors as they are expected at < 10s intervals
+            if "Rate limited" in str(e):
+                return True
+            # For other errors, try to reconnect once
             try:
                 if self.connect():
                     self.controller.signal(Signal.NEWNYM)
@@ -569,17 +575,29 @@ class IPChanger:
             print_status_table(True, self.interval, self.country, self.kill_switch)
             
             last_ip = None
+            consecutive_failures = 0
+            
             while not self.stop_event.is_set():
                 curr_ip = self.tor.get_ip()
-                if curr_ip and curr_ip != last_ip:
-                    last_ip = curr_ip
-                    country = self.tor.get_country(curr_ip)
-                    print_ip_change(curr_ip, country)
-                    self.rotation_count += 1
+                if curr_ip:
+                    consecutive_failures = 0
+                    if curr_ip != last_ip:
+                        last_ip = curr_ip
+                        country = self.tor.get_country(curr_ip)
+                        print_ip_change(curr_ip, country)
+                        self.rotation_count += 1
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures > 3:
+                        print_msg("!", "Network appears down. Re-initializing Tor...", C.YELLOW)
+                        self.tor.start(self.country)
+                        consecutive_failures = 0
                 
-                if not self.tor.rotate():
-                    if HAS_STEM:
-                        print_msg("!", "IP rotation signal failed. Re-attempting...", C.YELLOW)
+                # Only attempt rotation if we're not shutting down
+                if not self.stop_event.is_set():
+                    if not self.tor.rotate():
+                        if HAS_STEM and consecutive_failures > 2:
+                            print_msg("!", "IP rotation signal failed. Re-attempting...", C.YELLOW)
                 
                 if self.stop_event.wait(self.interval): break
         except Exception as e:
