@@ -143,16 +143,20 @@ class TransparentProxy:
             subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
             
-            # 1. Route DNS to Tor DNSPort (9053)
+            # 1. Block IPv6 entirely to force IPv4
+            subprocess.run(["sudo", "ip6tables", "-P", "INPUT", "DROP"], capture_output=True)
+            subprocess.run(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"], capture_output=True)
+            subprocess.run(["sudo", "ip6tables", "-P", "FORWARD", "DROP"], capture_output=True)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"], capture_output=True)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=1"], capture_output=True)
+
+            # 2. Route DNS to Tor DNSPort (9053)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
             
-            # 2. Exclude Tor processes from being looped back into Tor (Infinite loop protection)
+            # 3. Exclude Tor processes
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"], capture_output=True)
-            
-            # 3. Exclude the current user if they are running the tool (optional, but safer to let tool talk to internet for checks)
-            # Actually, we want EVERYTHING to go through Tor, so we only exclude the Tor process itself.
             
             # 4. Loopback safety
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"], capture_output=True)
@@ -165,8 +169,6 @@ class TransparentProxy:
                 subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"], capture_output=True)
                 subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"], capture_output=True)
             
-            # Disable IPv6 to prevent leaks (standard practice for Tor transparent proxies)
-            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"], capture_output=True)
             return True
         except: return False
 
@@ -188,7 +190,10 @@ class TransparentProxy:
         subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
+        subprocess.run(["sudo", "ip6tables", "-P", "INPUT", "ACCEPT"], capture_output=True)
+        subprocess.run(["sudo", "ip6tables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
         subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"], capture_output=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=0"], capture_output=True)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Tor Management (FIXED WITH TRANSPORTS)
@@ -240,6 +245,9 @@ class TorManager:
             "--CookieAuthentication", "0", 
             "--MaxCircuitDirtiness", "5", 
             "--NewCircuitPeriod", "5",
+            "--ClientUseIPv4", "1",
+            "--ClientUseIPv6", "0",
+            "--ClientPreferIPv6ORPort", "0",
             "--DataDirectory", tordata, 
             "--RunAsDaemon", "1"
         ]
@@ -284,11 +292,11 @@ class TorManager:
         except: return False
 
     def get_ip(self):
-        """Fetch current IP address through the Tor proxy."""
-        services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
+        """Fetch current IPv4 address through the Tor proxy."""
+        # Force IPv4 only services
+        services = ["https://api.ipify.org", "https://ipv4.icanhazip.com", "https://v4.ident.me"]
         random.shuffle(services)
         
-        # Internal check MUST use the proxy to verify Tor is working
         proxies = {
             'http': f'socks5h://127.0.0.1:{self.socks_port}',
             'https': f'socks5h://127.0.0.1:{self.socks_port}'
@@ -296,7 +304,11 @@ class TorManager:
         for url in services:
             try:
                 res = requests.get(url, proxies=proxies, timeout=5)
-                if res.status_code == 200: return res.text.strip()
+                if res.status_code == 200: 
+                    ip = res.text.strip()
+                    # Filter out any IPv6 just in case
+                    if ":" in ip: continue
+                    return ip
             except: continue
         return None
 
