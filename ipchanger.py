@@ -139,34 +139,46 @@ class TransparentProxy:
         # Linux iptables logic
         try:
             curr_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
-            subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
             
-            # 1. Block IPv6 entirely
+            # 1. FLUSH AND CLEAN START
+            subprocess.run(["sudo", "iptables", "-F"], capture_output=True)
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
+            subprocess.run(["sudo", "iptables", "-t", "mangle", "-F"], capture_output=True)
+            
+            # 2. DISABLE IPV6 (REALLY DISABLE IT)
             subprocess.run(["sudo", "ip6tables", "-P", "INPUT", "DROP"], capture_output=True)
             subprocess.run(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"], capture_output=True)
-            subprocess.run(["sudo", "ip6tables", "-F"], capture_output=True)
+            subprocess.run(["sudo", "ip6tables", "-P", "FORWARD", "DROP"], capture_output=True)
             subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"], capture_output=True)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=1"], capture_output=True)
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.lo.disable_ipv6=1"], capture_output=True)
 
-            # 2. Route DNS
+            # 3. SET DEFAULT POLICIES
+            if kill_switch:
+                subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "DROP"], capture_output=True)
+            else:
+                subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
+
+            # 4. ALLOW LOOPBACK AND TOR TRAFFIC
+            subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"], capture_output=True)
+            subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"], capture_output=True)
+            subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "ACCEPT"], capture_output=True)
+            
+            # 5. REDIRECT DNS (UDP/TCP 53)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"], capture_output=True)
             
-            # 3. Exclude Tor
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"], capture_output=True)
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"], capture_output=True)
-            
-            # 4. Loopback
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"], capture_output=True)
-            
-            # 5. Route ALL TCP to TransPort (9040)
+            # 6. REDIRECT ALL OTHER TCP TO TOR (TransPort 9040)
             subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "-j", "REDIRECT", "--to-ports", "9040"], capture_output=True)
             
-            if kill_switch:
-                subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "DROP"], capture_output=True)
-                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"], capture_output=True)
-                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"], capture_output=True)
+            # 7. BLOCK ALL NON-TOR UDP (Critical to stop leaks like WebRTC)
+            subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-p", "udp", "-j", "REJECT", "--reject-with", "icmp-port-unreachable"], capture_output=True)
             
+            # 8. IF KILL SWITCH IS ON, RE-ALLOW TOR TRAFFIC (needed after policy drop)
+            if kill_switch:
+                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"], capture_output=True)
+                subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-p", "udp", "--dport", "9053", "-j", "ACCEPT"], capture_output=True)
+
             return True
         except: return False
 
@@ -182,12 +194,14 @@ class TransparentProxy:
             except: pass
             return
 
+        subprocess.run(["sudo", "iptables", "-F"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-t", "nat", "-F"], capture_output=True)
-        subprocess.run(["sudo", "iptables", "-F", "OUTPUT"], capture_output=True)
         subprocess.run(["sudo", "iptables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
         subprocess.run(["sudo", "ip6tables", "-P", "INPUT", "ACCEPT"], capture_output=True)
         subprocess.run(["sudo", "ip6tables", "-P", "OUTPUT", "ACCEPT"], capture_output=True)
         subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"], capture_output=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=0"], capture_output=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv6.conf.lo.disable_ipv6=0"], capture_output=True)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Tor Management
