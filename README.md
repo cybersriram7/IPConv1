@@ -51,18 +51,19 @@ This script configures Tor, sets up transparent proxying, and enables the CLI.
 sudo ./install.sh
 ```
 
-### 🪟 Windows (10/11) - NEW: Ultimate Edition
-IPConv1 now features a **Zero-Configuration** experience for Windows:
+### 🪟 Windows (10/11)
+Follow these steps to set up IPConv1 on Windows:
 
 1.  **Open PowerShell** as Administrator.
-2.  **Run the tool**:
+2.  **Navigate** to the project directory:
     ```powershell
-    python ipchanger.py -s 10
+    cd Downloads\IPConv1
     ```
-3.  **Automatic Repair**: If Tor is missing, the tool will now **automatically download, extract, and install** the Tor Expert Bundle for you. No manual setup required!
-
-> [!TIP]
-> **Windows Administrator Rights**: On Windows, you MUST run your PowerShell as **Administrator** for the Kill Switch and System Proxy to work.
+3.  **Run the Installer**:
+    ```powershell
+    Set-ExecutionPolicy Bypass -Scope Process -Force; .\install.ps1
+    ```
+4.  **Restart PowerShell** to apply PATH changes if Tor was installed.
 
 ---
 
