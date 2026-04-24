@@ -40,14 +40,38 @@ echo -e "${CYAN}[*] Installing Python libraries...${NC}"
 pip3 install -q stem PySocks requests --break-system-packages 2>/dev/null || \
 pip3 install -q stem PySocks requests 2>/dev/null
 
-# Step 3: Tor Config
+# Step 3: Tor Config (Robust & Optimized)
 echo -e "${CYAN}[*] Configuring Tor...${NC}"
 TORRC="/etc/tor/torrc"
-if [ -f "$TORRC" ]; then
-    if ! grep -q "ControlPort 9051" "$TORRC"; then
-        echo -e "\nControlPort 9051\nCookieAuthentication 1" >> "$TORRC"
-    fi
-fi
+cat <<EOF > "$TORRC"
+# Optimized by IPConv V.1 - MAXIMUM FORCE
+ControlPort 9051
+CookieAuthentication 0
+SocksPort 127.0.0.1:9052
+HTTPTunnelPort 127.0.0.1:9080
+VirtualAddrNetworkIPv4 10.192.0.0/10
+AutomapHostsOnResolve 1
+TransPort 127.0.0.1:9040
+DNSPort 127.0.0.1:9053
+DataDirectory /var/lib/tor
+
+# Performance & Privacy
+HardwareAccel 1
+AvoidDiskWrites 1
+MaxCircuitDirtiness 10
+NewCircuitPeriod 10
+CircuitBuildTimeout 15
+EnforceDistinctSubnets 1
+UseEntryGuards 1
+NumEntryGuards 3
+
+# IPv4 Enforcement (Maximum Force)
+ClientUseIPv4 1
+ClientUseIPv6 0
+ClientPreferIPv6ORPort 0
+EOF
+chown debian-tor:debian-tor "$TORRC" 2>/dev/null || chown tor:tor "$TORRC" 2>/dev/null
+chmod 644 "$TORRC"
 
 # Step 4: Permissions
 ACTUAL_USER=${SUDO_USER:-$USER}

@@ -28,6 +28,12 @@ try:
 except ImportError:
     HAS_STEM = False
 
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
 # -----------------------------------------------------------------------
 # ANSI Color Constants
 # -----------------------------------------------------------------------
@@ -131,9 +137,17 @@ class TransparentProxy:
                 ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
                 if kill_switch:
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block"])
+                
+                # Disable IPv6 on Windows
+                TransparentProxy.run_cmd(["powershell", "-Command", "Disable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
+                
                 print_msg("V", "Windows Proxy enabled.", C.GREEN)
             except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
             return
+
+        # Disable IPv6 on Linux
+        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"])
+        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=1"])
 
         for t in ["iptables", "ip6tables"]:
             if shutil.which(t):
@@ -143,27 +157,62 @@ class TransparentProxy:
 
         if not shutil.which("iptables"): return
 
+        # Identify Tor User
+        tor_users = ["debian-tor", "tor", "tor-socks", "tor-annex"]
+        actual_tor_user = None
+        for u in tor_users:
+            try:
+                import pwd
+                pwd.getpwnam(u)
+                actual_tor_user = u
+                break
+            except KeyError: continue
+
+        if not actual_tor_user:
+            print_msg("!", "Could not identify Tor user. Using default 'debian-tor'.", C.YELLOW)
+            actual_tor_user = "debian-tor"
+
+        # Hardened Networking Rules
         cmds = [
+            # Flush NAT and Filter tables
+            ["sudo", "iptables", "-t", "nat", "-F"],
+            ["sudo", "iptables", "-t", "nat", "-F", "OUTPUT"],
+            ["sudo", "iptables", "-F", "OUTPUT"],
+            
+            # DNS Redirection (TCP & UDP)
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "RETURN"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "tor", "-j", "RETURN"],
+            
+            # Exclude Loopback
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--syn", "-j", "REDIRECT", "--to-ports", "9040"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+            
+            # Exclude LAN (Force Connect but don't break local networks)
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "127.0.0.0/8", "-j", "RETURN"],
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "192.168.0.0/16", "-j", "RETURN"],
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "10.0.0.0/8", "-j", "RETURN"],
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "172.16.0.0/12", "-j", "RETURN"],
+            
+            # Allow Tor User to connect to the world
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", actual_tor_user, "-j", "RETURN"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", actual_tor_user, "-j", "ACCEPT"],
+            
+            # Redirect all remaining TCP traffic to Tor's TransPort
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "-j", "REDIRECT", "--to-ports", "9040"],
+            
+            # MAXIMUM FORCE: Block all other traffic to prevent any leaks
+            ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-p", "udp", "-j", "DROP"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-p", "icmp", "-j", "DROP"],
+            ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
         ]
-        if kill_switch:
-            cmds += [
-                ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "debian-tor", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
-                ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
-            ]
+        
         for cmd in cmds: TransparentProxy.run_cmd(cmd)
 
         if shutil.which("ip6tables"):
             TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
         
-        print_msg("V", "Transparent proxy active.", C.GREEN)
+        print_msg("V", "Transparent proxy active (IPv6 disabled).", C.GREEN)
 
     @staticmethod
     def disable():
@@ -175,8 +224,13 @@ class TransparentProxy:
                 winreg.CloseKey(key)
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
+                # Re-enable IPv6 on Windows
+                TransparentProxy.run_cmd(["powershell", "-Command", "Enable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
             except: pass
             return
+
+        # Re-enable IPv6 on Linux
+        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"])
 
         for t in ["iptables", "ip6tables"]:
             if shutil.which(t):
@@ -210,10 +264,22 @@ class TorManager:
                 subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        for _ in range(20):
-            if self.is_running(): return True
+        for i in range(30):
+            if self.is_running():
+                if self.is_bootstrapped():
+                    return True
+                if i % 5 == 0:
+                    print_msg("*", f"Tor is bootstrapping... ({i*3}%)", C.YELLOW)
             time.sleep(1)
         return False
+
+    def is_bootstrapped(self):
+        if not self.connect(): return False
+        try:
+            status = self.controller.get_info("status/bootstrap-phase")
+            if "PROGRESS=100" in status: return True
+            return False
+        except: return False
 
     def is_running(self):
         try:
@@ -237,19 +303,44 @@ class TorManager:
         except: return False
 
     def get_ip(self):
-        for url in ["https://api.ipify.org", "https://icanhazip.com"]:
+        urls = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]
+        
+        # Try via Transparent Proxy first
+        for url in urls:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as res:
                     return res.read().decode().strip()
             except: continue
+            
+        # Fallback to direct SOCKS if Transparent Proxy fails
+        if HAS_REQUESTS:
+            proxies = {
+                'http': f'socks5h://127.0.0.1:{self.socks_port}',
+                'https': f'socks5h://127.0.0.1:{self.socks_port}'
+            }
+            for url in urls:
+                try:
+                    r = requests.get(url, proxies=proxies, timeout=10)
+                    if r.status_code == 200: return r.text.strip()
+                except: continue
         return None
 
     def get_country(self, ip):
+        if not ip: return None
         try:
+            # Try via Transparent Proxy
             with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=3) as res:
                 return json.loads(res.read().decode()).get('country')
-        except: return None
+        except:
+            # Fallback to SOCKS
+            if HAS_REQUESTS:
+                try:
+                    proxies = {'http': f'socks5h://127.0.0.1:{self.socks_port}'}
+                    r = requests.get(f"http://ip-api.com/json/{ip}?fields=country", proxies=proxies, timeout=5)
+                    return r.json().get('country')
+                except: pass
+        return None
 
 # -----------------------------------------------------------------------
 # Main Runner
