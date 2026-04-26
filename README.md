@@ -1,115 +1,65 @@
-# IP Changer - Fast IP Rotation Tool
+# IPConv1 - Professional IP Rotation Tool
+**Maximum Force Anonymity & Protection**
 
-Professional IP Rotation System using the Tor network. This tool provides system-wide transparent proxying and a robust kill-switch.
+IPConv1 is a state-of-the-art IP rotation system designed for security researchers and privacy advocates. It forces your entire machine (Linux or Windows) through the Tor network with a cryptographically verified kill switch.
 
-## 🚀 Features
-- **Automatic IP Rotation**: Change your public IP address at set intervals.
-- **Transparent Proxy**: Routes all system-wide TCP traffic through Tor automatically.
-- **Kill Switch**: Prevents IP leaks if the connection drops.
-- **DNS Leak Protection**: Forces requests through Tor's DNS port.
-- **Fast Mode**: Optimized for high-speed IP rotation (down to 5 seconds).
+## 🚀 Key Features
+- **Automatic IP Rotation**: High-speed public IP changes (minimum 5s interval).
+- **Maximum Force Kill Switch**: Zero-leak policy. If Tor drops, your internet drops.
+- **LAN Protection**: Stay connected to your Wi-Fi, Router, and Local Devices while being anonymous.
+- **Region Lock**: Force your traffic to exit through specific countries (e.g., US, UK, DE).
+- **Identity Verification**: Real-time health checks against Tor Project servers.
+- **Cross-Platform**: Full support for Linux (Transparent Proxy) and Windows (System Proxy + Firewall).
 
 ---
 
-Select your operating system below for tailored installation steps.
-
-### 🐧 Linux (Ubuntu, Arch, Fedora, etc.)
-Copy and paste the following commands to get started:
-
-### 1. Clone & Set Permissions
+## 🐧 Linux Setup
 ```bash
 git clone https://github.com/cybersriram7/IPConv1.git && cd IPConv1
 chmod +x install.sh
-```
-
-### 2. Install System Dependencies
-Select the command for your Linux distribution:
-
-**Ubuntu / Debian:**
-```bash
-sudo apt-get update && sudo apt-get install -y tor curl python3 python3-pip
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -Sy --noconfirm tor curl python python-pip
-```
-
-**Fedora / RHEL:**
-```bash
-sudo dnf install -y tor curl python3 python3-pip
-```
-
-### 3. Install Python Libraries
-```bash
-pip3 install -r requirements.txt --break-system-packages
-```
-
-### 4. Run the Professional Installer
-This script configures Tor, sets up transparent proxying, and enables the CLI.
-```bash
 sudo ./install.sh
 ```
 
-### 🪟 Windows (10/11)
-Follow these steps to set up IPConv1 on Windows:
-
-1.  **Open PowerShell** as Administrator.
-2.  **Navigate** to the project directory:
-    ```powershell
-    cd Downloads\IPConv1
-    ```
-3.  **Run the Installer**:
-    ```powershell
-    Set-ExecutionPolicy Bypass -Scope Process -Force; .\install.ps1
-    ```
-4.  **Restart PowerShell** to apply PATH changes if Tor was installed.
+## 🪟 Windows Setup
+1. Open **PowerShell as Administrator**.
+2. Run:
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; .\install.ps1
+```
 
 ---
 
 ## 📖 Usage
 
-### Start IP Rotation (Fast Mode - 5s)
-```bash
-sudo ipchanger -s 5
-```
-
-
-**Linux:**
+### Start Rotation (10s interval)
 ```bash
 sudo ipchanger -s 10
 ```
 
-**Windows (Admin Required):**
-```powershell
-python ipchanger.py -s 10
-```
-
-| Flag | Description | Linux Example | Windows Example |
-|------|-------------|---------------|-----------------|
-| `-c` | Change Country | `sudo ipchanger -s 10 -c us` | `python ipchanger.py -c us` |
-| `-k` | Kill Switch | `sudo ipchanger -k` | `python ipchanger.py -k` |
-| `stop` | Stop all services | `sudo ipchanger stop` | `python ipchanger.py stop` |
-
-> [!IMPORTANT]
-> **Windows Administrator Rights**: On Windows, you MUST run your PowerShell or Command Prompt as **Administrator** to use the Kill Switch and System Proxy features.
->
-> **Windows System Proxy**: On Windows, the tool automatically configures your **System-wide Proxy Settings**. This routes your browsers (Chrome, Edge) and most apps through Tor without any manual configuration!
-
----
-
-## 📜 Verification Tests
-Verify your anonymity and connection:
-
+### Start with Region Lock (e.g., United States)
 ```bash
-# Check current IP and Latency
-    while true; do curl -s https://api.ipify.org; echo " - Checked at $(date +%H:%M:%S)"; sleep 5; done
----
-
-## 🛑 How to Stop
- CRTL+C TO TERMINATE
-    
+sudo ipchanger -s 10 -c us
 ```
 
+### Stop all services
+```bash
+sudo ipchanger stop
+```
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `-s` | Seconds between rotation | `sudo ipchanger -s 5` |
+| `-c` | Country Code (2-letter) | `sudo ipchanger -c uk` |
+| `stop` | Deactivate all settings | `sudo ipchanger stop` |
+
 ---
-*Developed by Sriram*
+
+## 📜 Verification
+While the tool is running, your traffic is locked. You can verify this by running:
+```bash
+curl https://check.torproject.org/api/ip
+```
+Expected Output: `{"IsTor":true, ...}`
+
+---
+*Developed with ❤️ by Sriram*
