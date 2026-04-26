@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-ULTIMATE EDITION - Minimalist UI, Maximum Performance.
+UNIVERSAL EDITION - Works on all Linux distros + Windows.
 """
 
 import sys
@@ -202,12 +202,11 @@ class TransparentProxy:
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Tor"])
                 TransparentProxy.run_cmd(["powershell", "-Command", "Enable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
-                # Flush Windows DNS cache
                 TransparentProxy.run_cmd(["ipconfig", "/flushdns"])
             except: pass
             return
 
-        # Flush all iptables rules first
+        # Flush all iptables rules
         for t in ["iptables", "ip6tables"]:
             if shutil.which(t):
                 TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
@@ -218,11 +217,13 @@ class TransparentProxy:
         TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"])
         TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=0"])
 
-        # Restart NetworkManager to restore original DNS and IP
+        # Restart NetworkManager (Ubuntu/Pop/Fedora) or networkd (Arch/Debian minimal)
         if shutil.which("systemctl"):
             TransparentProxy.run_cmd(["sudo", "systemctl", "restart", "NetworkManager"])
+            TransparentProxy.run_cmd(["sudo", "systemctl", "restart", "systemd-networkd"])
         elif shutil.which("service"):
             TransparentProxy.run_cmd(["sudo", "service", "network-manager", "restart"])
+            TransparentProxy.run_cmd(["sudo", "service", "networking", "restart"])
 
         # Flush DNS cache
         if shutil.which("resolvectl"):
@@ -231,7 +232,7 @@ class TransparentProxy:
             TransparentProxy.run_cmd(["sudo", "systemd-resolve", "--flush-caches"])
 
 # -----------------------------------------------------------------------
-# Tor Manager
+# Tor Manager (Universal - handles all distros)
 # -----------------------------------------------------------------------
 
 class TorManager:
@@ -241,59 +242,139 @@ class TorManager:
         self.controller = None
 
     def start(self, country=None):
+        # Step 1: Patch torrc at runtime to guarantee our settings
+        self._patch_torrc()
+        
         if is_windows():
             path = shutil.which("tor") or "tor.exe"
             subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
+            # Stop all Tor instances first
+            subprocess.run(["sudo", "systemctl", "stop", "tor"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "stop", "tor@default"], capture_output=True)
+            subprocess.run(["sudo", "pkill", "-9", "tor"], capture_output=True)
+            time.sleep(1)
+            
+            # Start Tor fresh
             if shutil.which("systemctl"):
-                subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
-                subprocess.run(["sudo", "systemctl", "restart", "tor@default"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "start", "tor"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "start", "tor@default"], capture_output=True)
             else:
                 bin_path = shutil.which("tor") or "/usr/bin/tor"
-                subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
+                subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), 
+                                  "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Completely Silent Bootstrap
+        # Silent Bootstrap with auto-port detection
         for i in range(120):
-            if self.is_running():
-                phase = self.get_bootstrap_phase()
-                if "PROGRESS=100" in phase:
-                    if country: self.apply_country_config(country)
-                    return True
+            if self._detect_running_port():
+                if self._try_connect():
+                    phase = self.get_bootstrap_phase()
+                    if "PROGRESS=100" in phase:
+                        if country: self.apply_country_config(country)
+                        return True
             time.sleep(1)
         return False
 
+    def _patch_torrc(self):
+        """Patch tor-service-defaults-torrc at runtime to disable CookieAuth conflicts."""
+        if is_windows(): return
+        defaults_file = "/usr/share/tor/tor-service-defaults-torrc"
+        if not os.path.exists(defaults_file): return
+        try:
+            with open(defaults_file, 'r') as f:
+                content = f.read()
+            
+            patched = False
+            for line_prefix in ["CookieAuthentication", "CookieAuthFile", "CookieAuthFileGroupReadable"]:
+                if f"\n{line_prefix}" in content and f"\n#IPConv_Patched" not in content:
+                    content = content.replace(f"\n{line_prefix}", f"\n#IPConv_Patched: {line_prefix}")
+                    patched = True
+            
+            # Also comment out default SocksPort lines
+            lines = content.split('\n')
+            new_lines = []
+            for line in lines:
+                if line.startswith("SocksPort ") and "#IPConv_Patched" not in line:
+                    new_lines.append(f"#IPConv_Patched: {line}")
+                    patched = True
+                else:
+                    new_lines.append(line)
+            
+            if patched:
+                with open(defaults_file, 'w') as f:
+                    f.write('\n'.join(new_lines))
+        except: pass
+
+    def _detect_running_port(self):
+        """Try to detect which port Tor is actually listening on."""
+        for port in [self.socks_port, 9050]:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    self.socks_port = port
+                    return True
+            except: continue
+        return False
+
+    def _try_connect(self):
+        """Try multiple auth methods to connect to the Tor control port."""
+        if not HAS_STEM: return False
+        if self.controller and self.controller.is_alive(): return True
+        
+        # Method 1: No auth / password auth
+        try:
+            self.controller = Controller.from_port(port=self.ctrl_port)
+            self.controller.authenticate()
+            return True
+        except: pass
+        
+        # Method 2: Cookie auth (Ubuntu/Debian default)
+        cookie_paths = [
+            "/run/tor/control.authcookie",
+            "/var/run/tor/control.authcookie",
+            "/var/lib/tor/control_auth_cookie",
+        ]
+        for cookie in cookie_paths:
+            if os.path.exists(cookie):
+                try:
+                    self.controller = Controller.from_port(port=self.ctrl_port)
+                    with open(cookie, 'rb') as f:
+                        self.controller.authenticate(cookie_data=f.read())
+                    return True
+                except: continue
+        
+        # Method 3: Socket auth (some Debian setups)
+        socket_path = "/run/tor/control"
+        if os.path.exists(socket_path):
+            try:
+                self.controller = Controller.from_socket_file(socket_path)
+                self.controller.authenticate()
+                return True
+            except: pass
+        
+        return False
+
     def get_bootstrap_phase(self):
-        if not self.connect(): return "PROGRESS=0"
+        if not self.controller or not self.controller.is_alive():
+            if not self._try_connect(): return "PROGRESS=0"
         try:
             return self.controller.get_info("status/bootstrap-phase")
         except: return "PROGRESS=0"
 
     def apply_country_config(self, country):
-        if not self.connect(): return False
+        if not self._try_connect(): return False
         try:
             self.controller.set_conf("ExitNodes", f"{{{country}}}")
             self.controller.set_conf("StrictNodes", "1")
             return True
         except: return False
 
-    def is_running(self):
-        try:
-            with socket.create_connection(("127.0.0.1", self.socks_port), timeout=2): return True
-        except: return False
-
     def connect(self):
-        if not HAS_STEM: return False
-        if self.controller and self.controller.is_alive(): return True
-        try:
-            self.controller = Controller.from_port(port=self.ctrl_port)
-            self.controller.authenticate()
-            return True
-        except: return False
+        return self._try_connect()
 
     def rotate(self):
-        if not self.connect(): return False
+        if not self._try_connect(): return False
         try:
             self.controller.signal(Signal.NEWNYM)
             return True
@@ -338,14 +419,12 @@ class IPChanger:
         clear_screen()
         print_banner()
         
-        # Silent Startup
         if not self.tor.start(self.country):
             print_msg("X", "Failed to connect to Tor.", C.RED)
             return
         
         TransparentProxy.enable(True)
         
-        # Only verify and then print table immediately
         if not self.check_leaks():
             print_msg("X", "Leak detected! Connection aborted.", C.RED)
             self.shutdown()
@@ -377,9 +456,7 @@ class IPChanger:
         print_msg("*", "Restoring original network...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
-        # Give NetworkManager a moment to reconnect
         time.sleep(2)
-        # Show the restored real IP
         try:
             req = urllib.request.Request("https://icanhazip.com", headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as res:
@@ -400,7 +477,7 @@ def main():
     if args.command == "stop":
         TransparentProxy.disable()
         if is_windows(): os.system("taskkill /IM tor.exe /F >nul 2>&1")
-        else: os.system("sudo systemctl stop tor@default >/dev/null 2>&1; sudo pkill -9 tor >/dev/null 2>&1")
+        else: os.system("sudo systemctl stop tor@default >/dev/null 2>&1; sudo systemctl stop tor >/dev/null 2>&1")
         time.sleep(2)
         try:
             req = urllib.request.Request("https://icanhazip.com", headers={'User-Agent': 'Mozilla/5.0'})

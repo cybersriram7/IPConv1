@@ -1,6 +1,7 @@
 #!/bin/bash
 # -----------------------------------------------------------------------
-# IP Changer - Installation Script (Robust Ultra Fast Edition)
+# IP Changer - Installation Script (Universal Linux Edition)
+# Works on: Ubuntu, Debian, Kali, Arch, Fedora, Manjaro, Pop!_OS
 # -----------------------------------------------------------------------
 
 set -e
@@ -15,7 +16,7 @@ BOLD='\033[1m'
 
 echo -e "${CYAN}${BOLD}"
 echo "+------------------------------------------+"
-echo "|      IP Changer - Robust Setup           |"
+echo "|      IP Changer - Universal Setup        |"
 echo "+------------------------------------------+"
 echo -e "${NC}"
 
@@ -25,12 +26,18 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Step 1: System Packages
+# Step 1: Detect Package Manager & Install
 echo -e "${CYAN}[*] Installing system dependencies...${NC}"
 if command -v apt-get &> /dev/null; then
     apt-get update -qq && apt-get install -y tor curl python3 python3-pip iptables
 elif command -v pacman &> /dev/null; then
     pacman -S --noconfirm tor curl python python-pip iptables
+elif command -v dnf &> /dev/null; then
+    dnf install -y tor curl python3 python3-pip iptables
+elif command -v zypper &> /dev/null; then
+    zypper install -y tor curl python3 python3-pip iptables
+else
+    echo -e "${YELLOW}[!] Unknown package manager. Ensure tor, curl, and iptables are installed.${NC}"
 fi
 
 # Step 2: Python Libraries
@@ -38,13 +45,33 @@ echo -e "${CYAN}[*] Installing Python libraries...${NC}"
 pip3 install -q stem PySocks requests --break-system-packages 2>/dev/null || \
 pip3 install -q stem PySocks requests 2>/dev/null
 
-# Step 3: Tor Config (Optimized but Stable)
-echo -e "${CYAN}[*] Configuring Tor...${NC}"
+# Step 3: Fix Tor Defaults (THE KEY FIX for Ubuntu/Debian)
+# The tor-service-defaults-torrc sets CookieAuthentication=1 and SocksPort=9050
+# which conflicts with our torrc. We MUST override it.
+echo -e "${CYAN}[*] Patching Tor configuration for cross-distro compatibility...${NC}"
+
+DEFAULTS_TORRC="/usr/share/tor/tor-service-defaults-torrc"
+if [ -f "$DEFAULTS_TORRC" ]; then
+    # Backup original
+    cp "$DEFAULTS_TORRC" "${DEFAULTS_TORRC}.bak.ipconv" 2>/dev/null || true
+    
+    # Remove conflicting lines from defaults
+    sed -i 's/^CookieAuthentication.*/#IPConv_Patched: &/' "$DEFAULTS_TORRC"
+    sed -i 's/^CookieAuthFile.*/#IPConv_Patched: &/' "$DEFAULTS_TORRC"
+    sed -i 's/^CookieAuthFileGroupReadable.*/#IPConv_Patched: &/' "$DEFAULTS_TORRC"
+    # Comment out default SocksPort lines so ours takes priority
+    sed -i '/^SocksPort /s/^/#IPConv_Patched: /' "$DEFAULTS_TORRC"
+    echo -e "${GREEN}[V] Patched defaults-torrc (backup saved).${NC}"
+fi
+
+# Step 4: Write our torrc
+echo -e "${CYAN}[*] Writing optimized torrc...${NC}"
 TORRC="/etc/tor/torrc"
 cat <<EOF > "$TORRC"
-# Optimized by IPConv V.1 - MAXIMUM FORCE
+# Optimized by IPConv V.1 - Universal Linux Edition
 ControlPort 9051
 CookieAuthentication 0
+HashedControlPassword
 SocksPort 127.0.0.1:9052
 HTTPTunnelPort 127.0.0.1:9080
 VirtualAddrNetworkIPv4 10.192.0.0/10
@@ -68,20 +95,37 @@ ClientUseIPv4 1
 ClientUseIPv6 0
 ClientPreferIPv6ORPort 0
 EOF
-chown debian-tor:debian-tor "$TORRC" 2>/dev/null || chown tor:tor "$TORRC" 2>/dev/null
+
+# Detect Tor user and set ownership
+if id "debian-tor" &>/dev/null; then
+    chown debian-tor:debian-tor "$TORRC"
+elif id "tor" &>/dev/null; then
+    chown tor:tor "$TORRC"
+fi
 chmod 644 "$TORRC"
 
-# Step 4: Symlink
+# Step 5: Symlink
 ln -sf "$(pwd)/ipchanger.py" /usr/local/bin/ipchanger
 chmod +x ipchanger.py
 
-# Step 5: Service Setup
-echo -e "${CYAN}[*] Configuring Tor services...${NC}"
+# Step 6: Restart Tor (handle all service naming schemes)
+echo -e "${CYAN}[*] Restarting Tor service...${NC}"
 if command -v systemctl &> /dev/null; then
-    # Try to enable both master and default instance
+    # Stop all variants first
+    systemctl stop tor 2>/dev/null || true
+    systemctl stop tor@default 2>/dev/null || true
+    # Re-enable and start
     systemctl enable tor 2>/dev/null || true
-    systemctl enable tor@default 2>/dev/null || true
-    systemctl restart tor 2>/dev/null || systemctl restart tor@default
+    systemctl start tor 2>/dev/null || true
+    systemctl restart tor@default 2>/dev/null || true
+    
+    # Wait and verify
+    sleep 3
+    if systemctl is-active --quiet tor@default 2>/dev/null || systemctl is-active --quiet tor 2>/dev/null; then
+        echo -e "${GREEN}[V] Tor service is running.${NC}"
+    else
+        echo -e "${RED}[X] Tor failed to start. Check: journalctl -u tor@default${NC}"
+    fi
 elif command -v service &> /dev/null; then
     service tor restart
 fi
