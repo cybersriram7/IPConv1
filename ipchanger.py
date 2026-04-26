@@ -202,15 +202,33 @@ class TransparentProxy:
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_KS"])
                 TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "delete", "rule", "name=IPConv_Tor"])
                 TransparentProxy.run_cmd(["powershell", "-Command", "Enable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
+                # Flush Windows DNS cache
+                TransparentProxy.run_cmd(["ipconfig", "/flushdns"])
             except: pass
             return
 
-        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"])
+        # Flush all iptables rules first
         for t in ["iptables", "ip6tables"]:
             if shutil.which(t):
                 TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
                 TransparentProxy.run_cmd(["sudo", t, "-F", "OUTPUT"])
                 TransparentProxy.run_cmd(["sudo", t, "-P", "OUTPUT", "ACCEPT"])
+
+        # Re-enable IPv6
+        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=0"])
+        TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=0"])
+
+        # Restart NetworkManager to restore original DNS and IP
+        if shutil.which("systemctl"):
+            TransparentProxy.run_cmd(["sudo", "systemctl", "restart", "NetworkManager"])
+        elif shutil.which("service"):
+            TransparentProxy.run_cmd(["sudo", "service", "network-manager", "restart"])
+
+        # Flush DNS cache
+        if shutil.which("resolvectl"):
+            TransparentProxy.run_cmd(["sudo", "resolvectl", "flush-caches"])
+        elif shutil.which("systemd-resolve"):
+            TransparentProxy.run_cmd(["sudo", "systemd-resolve", "--flush-caches"])
 
 # -----------------------------------------------------------------------
 # Tor Manager
@@ -356,9 +374,19 @@ class IPChanger:
         finally: self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Safe Exit...", C.MAGENTA)
+        print_msg("*", "Restoring original network...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
+        # Give NetworkManager a moment to reconnect
+        time.sleep(2)
+        # Show the restored real IP
+        try:
+            req = urllib.request.Request("https://icanhazip.com", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as res:
+                real_ip = res.read().decode().strip()
+                print_msg("V", f"Original IP restored -> {real_ip}", C.GREEN)
+        except:
+            print_msg("V", "Network restored to default.", C.GREEN)
         os._exit(0)
 
 def main():
@@ -373,7 +401,14 @@ def main():
         TransparentProxy.disable()
         if is_windows(): os.system("taskkill /IM tor.exe /F >nul 2>&1")
         else: os.system("sudo systemctl stop tor@default >/dev/null 2>&1; sudo pkill -9 tor >/dev/null 2>&1")
-        print(colorize("[V] Network restored.", C.GREEN))
+        time.sleep(2)
+        try:
+            req = urllib.request.Request("https://icanhazip.com", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as res:
+                real_ip = res.read().decode().strip()
+                print(colorize(f"[V] Original IP restored -> {real_ip}", C.GREEN))
+        except:
+            print(colorize("[V] Network restored to default.", C.GREEN))
         sys.exit(0)
 
     if not is_admin():
