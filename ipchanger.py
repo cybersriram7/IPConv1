@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-ULTRA FAST EDITION - Optimized for sub-5s rotation and low latency.
+STABLE FAST EDITION - Optimized for sub-10s rotation with robust bootstrapping.
 """
 
 import sys
@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Set global timeout for socket operations
-socket.setdefaulttimeout(5)
+socket.setdefaulttimeout(10)
 
 # Attempt to import stem for Tor control
 try:
@@ -84,7 +84,7 @@ BANNER = r"""
 
 def print_banner():
     print(colorize(BANNER, C.CYAN, C.BOLD))
-    print(colorize("                                     [ ULTRA FAST EDITION ]", C.MAGENTA, C.BOLD))
+    print(colorize("                                     [ STABLE FAST EDITION ]", C.MAGENTA, C.BOLD))
     print(colorize("-" * 65, C.GRAY))
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
@@ -141,14 +141,12 @@ class TransparentProxy:
                 winreg.CloseKey(key)
                 ctypes.windll.wininet.InternetSetOptionW(0, 39, 0, 0)
                 ctypes.windll.wininet.InternetSetOptionW(0, 37, 0, 0)
-                
                 if kill_switch:
                     tor_path = shutil.which("tor") or "tor.exe"
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Tor", "dir=out", "action=allow", f"program={tor_path}", "enable=yes"])
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block", "enable=yes"])
-                
                 TransparentProxy.run_cmd(["powershell", "-Command", "Disable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
-                print_msg("V", "Windows System Proxy active (IPv6 Disabled).", C.GREEN)
+                print_msg("V", "Windows Proxy enabled.", C.GREEN)
             except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
             return
 
@@ -192,7 +190,7 @@ class TransparentProxy:
         
         for cmd in cmds: TransparentProxy.run_cmd(cmd)
         if shutil.which("ip6tables"): TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
-        print_msg("V", "Ultra Fast Transparent Proxy active.", C.GREEN)
+        print_msg("V", "Transparent Proxy active.", C.GREEN)
 
     @staticmethod
     def disable():
@@ -228,26 +226,39 @@ class TorManager:
         self.controller = None
 
     def start(self, country=None):
+        print_msg("*", "Restarting Tor services...", C.CYAN)
         if is_windows():
             path = shutil.which("tor") or "tor.exe"
             subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             if shutil.which("systemctl"):
+                # Try restarting the main and default instance
                 subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "restart", "tor@default"], capture_output=True)
             else:
                 bin_path = shutil.which("tor") or "/usr/bin/tor"
                 subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        for i in range(20):
+        # Extended Bootstrap Timeout (120 seconds)
+        for i in range(120):
             if self.is_running():
-                if self.is_bootstrapped():
+                phase = self.get_bootstrap_phase()
+                if "PROGRESS=100" in phase:
                     if country: self.apply_country_config(country)
                     return True
-                if i % 5 == 0: print_msg("*", f"Bootstrapping Tor engine... ({i*5}%)", C.YELLOW)
+                if i % 5 == 0:
+                    progress = phase.split("PROGRESS=")[-1].split(" ")[0] if "PROGRESS=" in phase else i
+                    print_msg("*", f"Bootstrapping Tor engine... ({progress}%)", C.YELLOW)
             time.sleep(1)
         return False
+
+    def get_bootstrap_phase(self):
+        if not self.connect(): return "PROGRESS=0"
+        try:
+            return self.controller.get_info("status/bootstrap-phase")
+        except: return "PROGRESS=0"
 
     def apply_country_config(self, country):
         if not self.connect(): return False
@@ -257,16 +268,9 @@ class TorManager:
             return True
         except: return False
 
-    def is_bootstrapped(self):
-        if not self.connect(): return False
-        try:
-            status = self.controller.get_info("status/bootstrap-phase")
-            return "PROGRESS=100" in status
-        except: return False
-
     def is_running(self):
         try:
-            with socket.create_connection(("127.0.0.1", self.socks_port), timeout=1): return True
+            with socket.create_connection(("127.0.0.1", self.socks_port), timeout=2): return True
         except: return False
 
     def connect(self):
@@ -290,7 +294,7 @@ class TorManager:
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=3) as res:
+                with urllib.request.urlopen(req, timeout=5) as res:
                     return res.read().decode().strip()
             except: continue
         return None
@@ -298,7 +302,7 @@ class TorManager:
     def get_country(self, ip):
         if not ip: return None
         try:
-            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=2) as res:
+            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=3) as res:
                 return json.loads(res.read().decode()).get('country')
         except: return None
 
@@ -316,24 +320,24 @@ class IPChanger:
 
     def check_leaks(self):
         try:
-            with urllib.request.urlopen("https://check.torproject.org/api/ip", timeout=5) as res:
+            with urllib.request.urlopen("https://check.torproject.org/api/ip", timeout=10) as res:
                 return json.loads(res.read().decode()).get("IsTor", False)
         except: return False
 
     def run(self):
         clear_screen()
         print_banner()
-        print_msg("*", "Activating Ultra Fast Engine...", C.CYAN)
         
         if not self.tor.start(self.country):
-            print_msg("X", "Failed to start Tor.", C.RED)
+            print_msg("X", "Failed to start Tor after 120s. Check your internet or torrc.", C.RED)
+            print_msg("!", "Try running: sudo systemctl restart tor@default", C.YELLOW)
             return
         
         TransparentProxy.enable(True)
         
-        print_msg("*", "Identity Test...", C.YELLOW)
+        print_msg("*", "Verifying Secure Circuit...", C.YELLOW)
         if not self.check_leaks():
-            print_msg("X", "Leaked! Aborting.", C.RED)
+            print_msg("X", "Identity Protection failed! Aborting.", C.RED)
             self.shutdown()
             return
 
@@ -343,9 +347,9 @@ class IPChanger:
             while not self.stop_event.is_set():
                 start_time = time.time()
                 
-                # Pre-emptive rotation signal (halfway through the interval)
-                if self.interval > 4:
-                    threading.Timer(self.interval / 2, self.tor.rotate).start()
+                # Pre-emptive rotation
+                if self.interval > 5:
+                    threading.Timer(self.interval - 2, self.tor.rotate).start()
                 else:
                     self.tor.rotate()
 
@@ -361,7 +365,7 @@ class IPChanger:
         finally: self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Cleaning up...", C.MAGENTA)
+        print_msg("*", "Safe Exit...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
         os._exit(0)
@@ -369,7 +373,7 @@ class IPChanger:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", nargs="?", default="run")
-    parser.add_argument("-s", "--seconds", type=int, default=5)
+    parser.add_argument("-s", "--seconds", type=int, default=10)
     parser.add_argument("-c", "--country", type=str)
     parser.add_argument("-k", "--kill-switch", action="store_true")
     args = parser.parse_args()
@@ -377,7 +381,7 @@ def main():
     if args.command == "stop":
         TransparentProxy.disable()
         if is_windows(): os.system("taskkill /IM tor.exe /F >nul 2>&1")
-        else: os.system("sudo pkill -9 tor >/dev/null 2>&1")
+        else: os.system("sudo systemctl stop tor@default >/dev/null 2>&1; sudo pkill -9 tor >/dev/null 2>&1")
         sys.exit(0)
 
     if not is_admin():

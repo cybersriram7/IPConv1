@@ -1,6 +1,6 @@
 #!/bin/bash
 # -----------------------------------------------------------------------
-# IP Changer - Installation Script (Ultra Fast Edition)
+# IP Changer - Installation Script (Robust Ultra Fast Edition)
 # -----------------------------------------------------------------------
 
 set -e
@@ -15,7 +15,7 @@ BOLD='\033[1m'
 
 echo -e "${CYAN}${BOLD}"
 echo "+------------------------------------------+"
-echo "|      IP Changer - Ultra Fast Setup       |"
+echo "|      IP Changer - Robust Setup           |"
 echo "+------------------------------------------+"
 echo -e "${NC}"
 
@@ -31,8 +31,6 @@ if command -v apt-get &> /dev/null; then
     apt-get update -qq && apt-get install -y tor curl python3 python3-pip iptables
 elif command -v pacman &> /dev/null; then
     pacman -S --noconfirm tor curl python python-pip iptables
-else
-    echo -e "${YELLOW}[!] Unknown package manager. Ensure tor, curl, and iptables are installed.${NC}"
 fi
 
 # Step 2: Python Libraries
@@ -40,11 +38,11 @@ echo -e "${CYAN}[*] Installing Python libraries...${NC}"
 pip3 install -q stem PySocks requests --break-system-packages 2>/dev/null || \
 pip3 install -q stem PySocks requests 2>/dev/null
 
-# Step 3: Tor Config (Optimized for ULTRA SPEED)
-echo -e "${CYAN}[*] Configuring Tor for Ultra Speed...${NC}"
+# Step 3: Tor Config (Optimized but Stable)
+echo -e "${CYAN}[*] Configuring Tor...${NC}"
 TORRC="/etc/tor/torrc"
 cat <<EOF > "$TORRC"
-# Optimized by IPConv V.1 - ULTRA FAST MODE
+# Optimized by IPConv V.1 - MAXIMUM FORCE
 ControlPort 9051
 CookieAuthentication 0
 SocksPort 127.0.0.1:9052
@@ -55,12 +53,10 @@ TransPort 127.0.0.1:9040
 DNSPort 127.0.0.1:9053
 DataDirectory /var/lib/tor
 
-# Ultra Fast Rotation Settings
-MaxCircuitDirtiness 5
-NewCircuitPeriod 5
-CircuitBuildTimeout 5
-KeepalivePeriod 60
-MaxCircuitBuildRetries 2
+# Fast Rotation Settings
+MaxCircuitDirtiness 10
+NewCircuitPeriod 10
+CircuitBuildTimeout 15
 HardwareAccel 1
 AvoidDiskWrites 1
 EnforceDistinctSubnets 1
@@ -75,26 +71,21 @@ EOF
 chown debian-tor:debian-tor "$TORRC" 2>/dev/null || chown tor:tor "$TORRC" 2>/dev/null
 chmod 644 "$TORRC"
 
-# Step 4: Permissions
-ACTUAL_USER=${SUDO_USER:-$USER}
-if [ "$ACTUAL_USER" != "root" ]; then
-    usermod -aG debian-tor "$ACTUAL_USER" 2>/dev/null || true
-    echo -e "${GREEN}[V] Permissions updated for $ACTUAL_USER${NC}"
-fi
-
-# Step 5: Symlink
+# Step 4: Symlink
 ln -sf "$(pwd)/ipchanger.py" /usr/local/bin/ipchanger
 chmod +x ipchanger.py
 
-# Step 6: Service Restart
-echo -e "${CYAN}[*] Restarting Tor service (Ultra Fast Mode)...${NC}"
+# Step 5: Service Setup
+echo -e "${CYAN}[*] Configuring Tor services...${NC}"
 if command -v systemctl &> /dev/null; then
-    systemctl restart tor
-    systemctl enable tor
+    # Try to enable both master and default instance
+    systemctl enable tor 2>/dev/null || true
+    systemctl enable tor@default 2>/dev/null || true
+    systemctl restart tor 2>/dev/null || systemctl restart tor@default
 elif command -v service &> /dev/null; then
     service tor restart
 fi
 
-echo -e "\n${GREEN}${BOLD}[V] Ultra Fast Installation Complete!${NC}"
-echo -e "Usage: sudo ipchanger -s 5"
+echo -e "\n${GREEN}${BOLD}[V] Installation Complete!${NC}"
+echo -e "Usage: sudo ipchanger -s 10"
 echo ""
