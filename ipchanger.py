@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-ULTIMATE EDITION - Clean UI, Maximum Speed, and Robust Anonymity.
+ULTIMATE EDITION - Minimalist UI, Maximum Performance.
 """
 
 import sys
@@ -84,7 +84,7 @@ BANNER = r"""
 
 def print_banner():
     print(colorize(BANNER, C.CYAN, C.BOLD))
-    print(colorize("                                     [ ULTIMATE EDITION ]", C.MAGENTA, C.BOLD))
+    print(colorize("                                     [ DEVELOPED BY SRIRAM ]", C.MAGENTA, C.BOLD))
     print(colorize("-" * 65, C.GRAY))
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
@@ -236,19 +236,14 @@ class TorManager:
                 subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        sys.stdout.write(colorize("[*] Establishing secure connection... ", C.YELLOW))
-        sys.stdout.flush()
-        
+        # Completely Silent Bootstrap
         for i in range(120):
             if self.is_running():
                 phase = self.get_bootstrap_phase()
                 if "PROGRESS=100" in phase:
                     if country: self.apply_country_config(country)
-                    sys.stdout.write(colorize("DONE\n", C.GREEN))
                     return True
             time.sleep(1)
-        
-        sys.stdout.write(colorize("FAILED\n", C.RED))
         return False
 
     def get_bootstrap_phase(self):
@@ -325,19 +320,18 @@ class IPChanger:
         clear_screen()
         print_banner()
         
+        # Silent Startup
         if not self.tor.start(self.country):
-            print_msg("X", "Failed to connect to Tor. Please check your internet.", C.RED)
+            print_msg("X", "Failed to connect to Tor.", C.RED)
             return
         
         TransparentProxy.enable(True)
         
-        sys.stdout.write(colorize("[*] Verifying secure identity... ", C.YELLOW))
-        sys.stdout.flush()
+        # Only verify and then print table immediately
         if not self.check_leaks():
-            sys.stdout.write(colorize("LEAKED\n", C.RED))
+            print_msg("X", "Leak detected! Connection aborted.", C.RED)
             self.shutdown()
             return
-        sys.stdout.write(colorize("SECURE\n", C.GREEN))
 
         print_status_table(True, self.interval, self.country, True)
         
@@ -362,7 +356,7 @@ class IPChanger:
         finally: self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Cleaning up and restoring network...", C.MAGENTA)
+        print_msg("*", "Safe Exit...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
         os._exit(0)
