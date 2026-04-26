@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-Optimized for stability and cross-platform compatibility.
+Optimized for stability, LAN connectivity, and "Maximum Force" leak protection.
 """
 
 import sys
@@ -98,7 +98,7 @@ def print_status_table(tor_status, interval, country=None, kill_switch=False):
     reg_text = colorize(region, C.CYAN)
     print(f"{colorize('|', C.CYAN)} Target Region           {colorize('|', C.CYAN)} {reg_text.ljust(39+9)} {colorize('|', C.CYAN)}")
     
-    ks_val = colorize("ACTIVE", C.GREEN, C.BOLD) if kill_switch else colorize("DISABLED", C.GRAY)
+    ks_val = colorize("ACTIVE (MAX FORCE)", C.GREEN, C.BOLD) if kill_switch else colorize("DISABLED", C.GRAY)
     print(f"{colorize('|', C.CYAN)} Network Kill Switch     {colorize('|', C.CYAN)} {ks_val.ljust(39+9)} {colorize('|', C.CYAN)}")
     
     print(f"{colorize('|', C.CYAN)} CTRL+C                  {colorize('|', C.CYAN)} {colorize('Press CTRL+C to Terminate', C.RED).ljust(39+9)} {colorize('|', C.CYAN)}")
@@ -172,36 +172,45 @@ class TransparentProxy:
             print_msg("!", "Could not identify Tor user. Using default 'debian-tor'.", C.YELLOW)
             actual_tor_user = "debian-tor"
 
-        # Hardened Networking Rules
+        # Hardened Networking Rules - "MAXIMUM FORCE" with LAN Protection
         cmds = [
-            # Flush NAT and Filter tables
+            # Flush existing rules
             ["sudo", "iptables", "-t", "nat", "-F"],
-            ["sudo", "iptables", "-t", "nat", "-F", "OUTPUT"],
             ["sudo", "iptables", "-F", "OUTPUT"],
             
-            # DNS Redirection (TCP & UDP)
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
-            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
-            
-            # Exclude Loopback
+            # --- NAT Table (Redirection) ---
+            # Exclude Loopback & LAN from Redirection
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-o", "lo", "-j", "RETURN"],
-            ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
-            
-            # Exclude LAN (Force Connect but don't break local networks)
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "127.0.0.0/8", "-j", "RETURN"],
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "192.168.0.0/16", "-j", "RETURN"],
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "10.0.0.0/8", "-j", "RETURN"],
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-d", "172.16.0.0/12", "-j", "RETURN"],
             
-            # Allow Tor User to connect to the world
+            # Allow Tor User to bypass NAT
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-m", "owner", "--uid-owner", actual_tor_user, "-j", "RETURN"],
-            ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", actual_tor_user, "-j", "ACCEPT"],
+            
+            # Redirect DNS (UDP 53) to Tor DNSPort
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
+            ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "9053"],
             
             # Redirect all remaining TCP traffic to Tor's TransPort
             ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "-j", "REDIRECT", "--to-ports", "9040"],
             
-            # MAXIMUM FORCE: Block all other traffic to prevent any leaks
+            # --- Filter Table (Policy & Leaks) ---
+            # Allow Loopback & LAN
+            ["sudo", "iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-d", "192.168.0.0/16", "-j", "ACCEPT"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-d", "10.0.0.0/8", "-j", "ACCEPT"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-d", "172.16.0.0/12", "-j", "ACCEPT"],
+            
+            # Allow Tor User to connect to the world
+            ["sudo", "iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", actual_tor_user, "-j", "ACCEPT"],
+            
+            # Allow traffic to TransPort & DNSPort (Already redirected)
             ["sudo", "iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "9040", "-j", "ACCEPT"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-p", "udp", "--dport", "9053", "-j", "ACCEPT"],
+            
+            # MAXIMUM FORCE: Block all other traffic to prevent any leaks
             ["sudo", "iptables", "-A", "OUTPUT", "-p", "udp", "-j", "DROP"],
             ["sudo", "iptables", "-A", "OUTPUT", "-p", "icmp", "-j", "DROP"],
             ["sudo", "iptables", "-P", "OUTPUT", "DROP"]
@@ -212,7 +221,7 @@ class TransparentProxy:
         if shutil.which("ip6tables"):
             TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
         
-        print_msg("V", "Transparent proxy active (IPv6 disabled).", C.GREEN)
+        print_msg("V", "Maximum Force Transparent proxy active.", C.GREEN)
 
     @staticmethod
     def disable():
@@ -267,11 +276,23 @@ class TorManager:
         for i in range(30):
             if self.is_running():
                 if self.is_bootstrapped():
+                    if country: self.apply_country_config(country)
                     return True
                 if i % 5 == 0:
                     print_msg("*", f"Tor is bootstrapping... ({i*3}%)", C.YELLOW)
             time.sleep(1)
         return False
+
+    def apply_country_config(self, country):
+        if not self.connect(): return False
+        try:
+            self.controller.set_conf("ExitNodes", f"{{{country}}}")
+            self.controller.set_conf("StrictNodes", "1")
+            print_msg("V", f"Locked region to: {country.upper()}", C.CYAN)
+            return True
+        except Exception as e:
+            print_msg("X", f"Region lock failed: {e}", C.RED)
+            return False
 
     def is_bootstrapped(self):
         if not self.connect(): return False
@@ -288,6 +309,7 @@ class TorManager:
 
     def connect(self):
         if not HAS_STEM: return False
+        if self.controller and self.controller.is_alive(): return True
         try:
             self.controller = Controller.from_port(port=self.ctrl_port)
             self.controller.authenticate()
@@ -295,8 +317,7 @@ class TorManager:
         except: return False
 
     def rotate(self):
-        if not self.controller or not self.controller.is_alive():
-            if not self.connect(): return False
+        if not self.connect(): return False
         try:
             self.controller.signal(Signal.NEWNYM)
             return True
@@ -309,7 +330,7 @@ class TorManager:
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as res:
+                with urllib.request.urlopen(req, timeout=8) as res:
                     return res.read().decode().strip()
             except: continue
             
@@ -329,11 +350,9 @@ class TorManager:
     def get_country(self, ip):
         if not ip: return None
         try:
-            # Try via Transparent Proxy
-            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=3) as res:
+            with urllib.request.urlopen(f"http://ip-api.com/json/{ip}?fields=country", timeout=5) as res:
                 return json.loads(res.read().decode()).get('country')
         except:
-            # Fallback to SOCKS
             if HAS_REQUESTS:
                 try:
                     proxies = {'http': f'socks5h://127.0.0.1:{self.socks_port}'}
@@ -354,43 +373,66 @@ class IPChanger:
         self.tor = TorManager()
         self.stop_event = threading.Event()
 
+    def check_leaks(self):
+        """Verifies that the connection is actually going through Tor."""
+        try:
+            with urllib.request.urlopen("https://check.torproject.org/api/ip", timeout=5) as res:
+                data = json.loads(res.read().decode())
+                return data.get("IsTor", False)
+        except: return False
+
     def run(self):
         clear_screen()
         print_banner()
-        print_msg("*", "Initializing system...", C.CYAN)
+        print_msg("*", "Initializing Maximum Force system...", C.CYAN)
         
         if not self.tor.start(self.country):
             print_msg("X", "Could not start Tor service.", C.RED)
             return
         
-        TransparentProxy.enable(self.kill_switch)
-        print_status_table(True, self.interval, self.country, self.kill_switch)
+        # Always enable transparent proxy for "Maximum Force"
+        TransparentProxy.enable(True) # Force True for Maximum Force
         
-        while not self.stop_event.is_set():
-            ip = self.tor.get_ip()
-            if ip:
-                country = self.tor.get_country(ip)
-                print_ip_change(ip, country)
-            
-            if not self.tor.rotate():
-                print_msg("!", "Rotation signal failed, reconnecting...", C.YELLOW)
-                self.tor.connect()
-            
-            if self.stop_event.wait(self.interval): break
+        print_msg("*", "Verifying Tor connection...", C.YELLOW)
+        if not self.check_leaks():
+            print_msg("!", "WARNING: Potential Leak or Tor not active! Retrying...", C.RED)
+            time.sleep(2)
+            if not self.check_leaks():
+                print_msg("X", "Critical Failure: Connection is NOT encrypted. Aborting.", C.RED)
+                self.shutdown()
+                return
+
+        print_status_table(True, self.interval, self.country, True)
         
-        self.shutdown()
+        try:
+            while not self.stop_event.is_set():
+                ip = self.tor.get_ip()
+                if ip:
+                    country = self.tor.get_country(ip)
+                    print_ip_change(ip, country)
+                
+                if not self.tor.rotate():
+                    print_msg("!", "Rotation signal failed, reconnecting...", C.YELLOW)
+                    self.tor.connect()
+                
+                if self.stop_event.wait(self.interval): break
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Cleaning up...", C.MAGENTA)
+        print_msg("*", "Cleaning up and restoring network...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
+        print_msg("V", "Safe to exit. Bye!", C.GREEN)
         os._exit(0)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seconds", type=int, default=10)
     parser.add_argument("-c", "--country", type=str)
-    parser.add_argument("-k", "--kill-switch", action="store_true")
+    parser.add_argument("-k", "--kill-switch", action="store_true", help="Force maximum leak protection")
     args = parser.parse_args()
 
     if not is_admin():
@@ -400,6 +442,7 @@ def main():
 
     changer = IPChanger(args.seconds, args.country, args.kill_switch)
     signal.signal(signal.SIGINT, lambda s, f: changer.stop_event.set())
+    signal.signal(signal.SIGTERM, lambda s, f: changer.stop_event.set())
     changer.run()
 
 if __name__ == "__main__":

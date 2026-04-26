@@ -84,6 +84,15 @@ fi
 ln -sf "$(pwd)/ipchanger.py" /usr/local/bin/ipchanger
 chmod +x ipchanger.py
 
+# Step 6: Service Restart
+echo -e "${CYAN}[*] Restarting Tor service...${NC}"
+if command -v systemctl &> /dev/null; then
+    systemctl restart tor
+    systemctl enable tor
+elif command -v service &> /dev/null; then
+    service tor restart
+fi
+
 echo -e "\n${GREEN}${BOLD}[V] Installation Complete!${NC}"
 echo -e "Usage: sudo ipchanger -s 10"
 echo ""
