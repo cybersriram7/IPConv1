@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IP Changer - Professional Tor-Based IP Rotation Tool
-STABLE FAST EDITION - Optimized for sub-10s rotation with robust bootstrapping.
+ULTIMATE EDITION - Clean UI, Maximum Speed, and Robust Anonymity.
 """
 
 import sys
@@ -84,7 +84,7 @@ BANNER = r"""
 
 def print_banner():
     print(colorize(BANNER, C.CYAN, C.BOLD))
-    print(colorize("                                     [ STABLE FAST EDITION ]", C.MAGENTA, C.BOLD))
+    print(colorize("                                     [ ULTIMATE EDITION ]", C.MAGENTA, C.BOLD))
     print(colorize("-" * 65, C.GRAY))
 
 def print_status_table(tor_status, interval, country=None, kill_switch=False):
@@ -146,8 +146,7 @@ class TransparentProxy:
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_Tor", "dir=out", "action=allow", f"program={tor_path}", "enable=yes"])
                     TransparentProxy.run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", "name=IPConv_KS", "dir=out", "action=block", "enable=yes"])
                 TransparentProxy.run_cmd(["powershell", "-Command", "Disable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6"], silent=True)
-                print_msg("V", "Windows Proxy enabled.", C.GREEN)
-            except Exception as e: print_msg("X", f"Proxy fail: {e}", C.RED)
+            except: pass
             return
 
         TransparentProxy.run_cmd(["sudo", "sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"])
@@ -190,7 +189,6 @@ class TransparentProxy:
         
         for cmd in cmds: TransparentProxy.run_cmd(cmd)
         if shutil.which("ip6tables"): TransparentProxy.run_cmd(["sudo", "ip6tables", "-P", "OUTPUT", "DROP"])
-        print_msg("V", "Transparent Proxy active.", C.GREEN)
 
     @staticmethod
     def disable():
@@ -213,7 +211,6 @@ class TransparentProxy:
                 TransparentProxy.run_cmd(["sudo", t, "-t", "nat", "-F"])
                 TransparentProxy.run_cmd(["sudo", t, "-F", "OUTPUT"])
                 TransparentProxy.run_cmd(["sudo", t, "-P", "OUTPUT", "ACCEPT"])
-        print_msg("V", "Network restored.", C.GREEN)
 
 # -----------------------------------------------------------------------
 # Tor Manager
@@ -226,14 +223,12 @@ class TorManager:
         self.controller = None
 
     def start(self, country=None):
-        print_msg("*", "Restarting Tor services...", C.CYAN)
         if is_windows():
             path = shutil.which("tor") or "tor.exe"
             subprocess.Popen([path, "-SocksPort", str(self.socks_port), "-ControlPort", str(self.ctrl_port)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             if shutil.which("systemctl"):
-                # Try restarting the main and default instance
                 subprocess.run(["sudo", "systemctl", "restart", "tor"], capture_output=True)
                 subprocess.run(["sudo", "systemctl", "restart", "tor@default"], capture_output=True)
             else:
@@ -241,17 +236,19 @@ class TorManager:
                 subprocess.Popen(["sudo", bin_path, "--SocksPort", str(self.socks_port), "--ControlPort", str(self.ctrl_port), "--RunAsDaemon", "1"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Extended Bootstrap Timeout (120 seconds)
+        sys.stdout.write(colorize("[*] Establishing secure connection... ", C.YELLOW))
+        sys.stdout.flush()
+        
         for i in range(120):
             if self.is_running():
                 phase = self.get_bootstrap_phase()
                 if "PROGRESS=100" in phase:
                     if country: self.apply_country_config(country)
+                    sys.stdout.write(colorize("DONE\n", C.GREEN))
                     return True
-                if i % 5 == 0:
-                    progress = phase.split("PROGRESS=")[-1].split(" ")[0] if "PROGRESS=" in phase else i
-                    print_msg("*", f"Bootstrapping Tor engine... ({progress}%)", C.YELLOW)
             time.sleep(1)
+        
+        sys.stdout.write(colorize("FAILED\n", C.RED))
         return False
 
     def get_bootstrap_phase(self):
@@ -329,17 +326,18 @@ class IPChanger:
         print_banner()
         
         if not self.tor.start(self.country):
-            print_msg("X", "Failed to start Tor after 120s. Check your internet or torrc.", C.RED)
-            print_msg("!", "Try running: sudo systemctl restart tor@default", C.YELLOW)
+            print_msg("X", "Failed to connect to Tor. Please check your internet.", C.RED)
             return
         
         TransparentProxy.enable(True)
         
-        print_msg("*", "Verifying Secure Circuit...", C.YELLOW)
+        sys.stdout.write(colorize("[*] Verifying secure identity... ", C.YELLOW))
+        sys.stdout.flush()
         if not self.check_leaks():
-            print_msg("X", "Identity Protection failed! Aborting.", C.RED)
+            sys.stdout.write(colorize("LEAKED\n", C.RED))
             self.shutdown()
             return
+        sys.stdout.write(colorize("SECURE\n", C.GREEN))
 
         print_status_table(True, self.interval, self.country, True)
         
@@ -347,7 +345,6 @@ class IPChanger:
             while not self.stop_event.is_set():
                 start_time = time.time()
                 
-                # Pre-emptive rotation
                 if self.interval > 5:
                     threading.Timer(self.interval - 2, self.tor.rotate).start()
                 else:
@@ -365,7 +362,7 @@ class IPChanger:
         finally: self.shutdown()
 
     def shutdown(self):
-        print_msg("*", "Safe Exit...", C.MAGENTA)
+        print_msg("*", "Cleaning up and restoring network...", C.MAGENTA)
         TransparentProxy.disable()
         if self.tor.controller: self.tor.controller.close()
         os._exit(0)
@@ -382,9 +379,11 @@ def main():
         TransparentProxy.disable()
         if is_windows(): os.system("taskkill /IM tor.exe /F >nul 2>&1")
         else: os.system("sudo systemctl stop tor@default >/dev/null 2>&1; sudo pkill -9 tor >/dev/null 2>&1")
+        print(colorize("[V] Network restored.", C.GREEN))
         sys.exit(0)
 
     if not is_admin():
+        print(colorize("[X] Error: Run as root/administrator.", C.RED))
         sys.exit(1)
 
     changer = IPChanger(args.seconds, args.country, args.kill_switch)
